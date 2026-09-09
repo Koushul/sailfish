@@ -83,6 +83,15 @@ def normalize_config(cfg: dict) -> dict:
         adt.setdefault("min_reads", 10)
         adt.setdefault("resolution", "cr-like")
         cfg["adt"] = adt
+    if cfg.get("vdj"):
+        vdj = dict(cfg["vdj"])
+        vdj.setdefault("min_reads", 10)
+        vdj.setdefault("resolution", "cr-like")
+        vdj.setdefault("kmer_length", 21)
+        vdj.setdefault("minimizer_length", 11)
+        if not vdj.get("chemistry"):
+            vdj["chemistry"] = cfg["gex"].get("chemistry", "10xv3-5p")
+        cfg["vdj"] = vdj
     if cfg["mode"] == "ocm":
         ocm = dict(cfg.get("ocm") or {})
         ocm.setdefault("overhang_start", 7)

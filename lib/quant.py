@@ -24,6 +24,7 @@ def run_simpleaf_quant(
     resolution: str = "cr-like",
     unfiltered_pl: bool = True,
     anndata_out: bool = True,
+    t2g_map: Path | None = None,
     log_path: Path | None = None,
 ) -> None:
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -45,6 +46,8 @@ def run_simpleaf_quant(
         "--output",
         str(output),
     ]
+    if t2g_map is not None:
+        cmd.extend(["--t2g-map", str(t2g_map)])
     if unfiltered_pl:
         cmd.append("--unfiltered-pl")
         cmd.extend(["--min-reads", str(min_reads)])
@@ -57,6 +60,48 @@ def run_simpleaf_quant(
     if proc.returncode != 0:
         tail = log_path.read_text(errors="replace")[-4000:]
         raise RuntimeError(f"simpleaf quant failed (rc={proc.returncode})\n{tail}")
+
+
+def run_simpleaf_index(
+    *,
+    ref_seq: Path,
+    output: Path,
+    threads: int,
+    kmer_length: int = 21,
+    minimizer_length: int = 11,
+    keep_duplicates: bool = True,
+    work_dir: Path | None = None,
+    overwrite: bool = True,
+    log_path: Path | None = None,
+) -> None:
+    output.mkdir(parents=True, exist_ok=True)
+    cmd = [
+        simpleaf_bin(),
+        "index",
+        "--output",
+        str(output),
+        "--ref-seq",
+        str(ref_seq),
+        "--threads",
+        str(threads),
+        "--kmer-length",
+        str(kmer_length),
+        "--minimizer-length",
+        str(minimizer_length),
+    ]
+    if keep_duplicates:
+        cmd.append("--keep-duplicates")
+    if overwrite:
+        cmd.append("--overwrite")
+    if work_dir is not None:
+        work_dir.mkdir(parents=True, exist_ok=True)
+        cmd.extend(["--work-dir", str(work_dir)])
+    log_path = log_path or (output / "index.log")
+    with open(log_path, "w") as log:
+        proc = subprocess.run(cmd, stdout=log, stderr=subprocess.STDOUT, check=False)
+    if proc.returncode != 0:
+        tail = log_path.read_text(errors="replace")[-4000:]
+        raise RuntimeError(f"simpleaf index failed (rc={proc.returncode})\n{tail}")
 
 
 def simpleaf_set_paths() -> None:

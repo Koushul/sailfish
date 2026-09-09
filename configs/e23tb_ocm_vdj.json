@@ -1,0 +1,38 @@
+{
+  "sample": "E23TB",
+  "mode": "ocm",
+  "output": "/ix1/ylee/shared/E20_E30_Series/sailfish_runs/E23TB",
+  "threads": 32,
+  "min_gex_umi": 500,
+  "tools": {
+    "conda": "/ix1/ylee/kor11/tools/af_tutorial/conda_env"
+  },
+  "gex": {
+    "reads1": [
+      "/ix1/ylee/shared/E20_E30_Series/E23TB_GEX/E23TB_GEX-SI_TT_E7_23W5C2LT4_S4_L005_R1_001.fastq.gz"
+    ],
+    "reads2": [
+      "/ix1/ylee/shared/E20_E30_Series/E23TB_GEX/E23TB_GEX-SI_TT_E7_23W5C2LT4_S4_L005_R2_001.fastq.gz"
+    ],
+    "index": "/ix1/ylee/kor11/tools/af_tutorial/E14S_simpleaf/mouse-2024-A_splici/index",
+    "chemistry": "10xv3-5p"
+  },
+  "vdj": {
+    "reference": "/ix1/ylee/Yifan_Zhang/Cellranger_ref/refdata-cellranger-vdj-GRCm38-alts-ensembl-7.0.0",
+    "chemistry": "10xv3-5p",
+    "tcr": {
+      "fastqs": "/ix1/ylee/shared/E20_E30_Series/E23TB_TCR"
+    },
+    "bcr": {
+      "fastqs": "/ix1/ylee/shared/E20_E30_Series/E23TB_BCR"
+    }
+  },
+  "ocm": {
+    "samples": {
+      "GT": "CD4",
+      "CA": "CD8",
+      "TC": "CD19",
+      "AG": "Skin"
+    }
+  }
+}

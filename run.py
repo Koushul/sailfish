@@ -16,6 +16,7 @@ from lib.env import setup_env
 from lib.io_utils import find_alevin_dir, find_quants_h5ad
 from lib.merge import merge_gex_adt
 from lib.quant import ensure_chemistry, run_simpleaf_quant, simpleaf_set_paths
+from lib.vdj import attach_vdj_to_h5ad, run_vdj
 
 
 def load_config(path: Path) -> dict:
@@ -81,19 +82,25 @@ def maybe_quant(cfg: dict, outdir: Path, skip_quant: bool) -> None:
         log_path=outdir / "logs" / "quant_gex.log",
     )
     adt = cfg.get("adt")
-    if not adt:
-        return
-    run_simpleaf_quant(
-        reads1=adt["reads1"],
-        reads2=adt["reads2"],
-        index=Path(adt["index"]),
-        chemistry=adt["chemistry"],
-        output=outdir / "adt_quant",
-        threads=int(adt.get("threads", max(8, threads // 4))),
-        min_reads=int(adt.get("min_reads", 10)),
-        resolution=adt.get("resolution", "cr-like"),
-        log_path=outdir / "logs" / "quant_adt.log",
-    )
+    if adt:
+        run_simpleaf_quant(
+            reads1=adt["reads1"],
+            reads2=adt["reads2"],
+            index=Path(adt["index"]),
+            chemistry=adt["chemistry"],
+            output=outdir / "adt_quant",
+            threads=int(adt.get("threads", max(8, threads // 4))),
+            min_reads=int(adt.get("min_reads", 10)),
+            resolution=adt.get("resolution", "cr-like"),
+            log_path=outdir / "logs" / "quant_adt.log",
+        )
+
+
+def _load_vdj_run(outdir: Path) -> dict | None:
+    p = outdir / "vdj" / "vdj_run.json"
+    if p.exists():
+        return json.loads(p.read_text())
+    return None
 
 
 def run_pipeline(cfg: dict, *, skip_quant: bool | None = None) -> Path:
@@ -106,6 +113,13 @@ def run_pipeline(cfg: dict, *, skip_quant: bool | None = None) -> Path:
     simpleaf_set_paths()
     skip = cfg.get("skip_quant", False) if skip_quant is None else skip_quant
     maybe_quant(cfg, outdir, skip)
+    vdj_run = None
+    if cfg.get("vdj"):
+        existing = _load_vdj_run(outdir)
+        if skip and existing and existing.get("libraries"):
+            vdj_run = existing
+        else:
+            vdj_run = run_vdj(cfg, outdir)
 
     gex_h5, gex_al = resolve_gex_inputs(cfg, outdir)
     adt_h5, adt_al = resolve_adt_inputs(cfg, outdir)
@@ -136,6 +150,12 @@ def run_pipeline(cfg: dict, *, skip_quant: bool | None = None) -> Path:
             include_unassigned=bool(ocm.get("include_unassigned", False)),
             cellranger_per_sample_outs=_p(cr.get("per_sample_outs")),
         )
+        attach_vdj_to_h5ad(outdir / "ocm" / f"{sample}_gex_adt_ocm.h5ad", vdj_run)
+        for spec in samples:
+            attach_vdj_to_h5ad(
+                outdir / "ocm" / "per_sample_outs" / spec["sample_id"] / "sample_filtered_gex_adt.h5ad",
+                vdj_run,
+            )
         if cr.get("per_sample_outs"):
             compare_ocm_to_cellranger_multi(
                 outdir / "ocm",
@@ -162,6 +182,11 @@ def run_pipeline(cfg: dict, *, skip_quant: bool | None = None) -> Path:
             min_gex_umi=min_umi,
             chemistry=cfg["gex"].get("chemistry", ""),
         )
+        for name in (f"{sample}_gex_adt.h5ad", f"{sample}_gex.h5ad"):
+            p = outdir / "quant" / name
+            if p.exists():
+                attach_vdj_to_h5ad(p, vdj_run)
+                break
         if cr.get("filtered_mtx"):
             compare_to_cellranger_count(
                 outdir / "quant" / "filtered_feature_bc_matrix",
@@ -174,12 +199,16 @@ def run_pipeline(cfg: dict, *, skip_quant: bool | None = None) -> Path:
 
 def main() -> None:
     ap = argparse.ArgumentParser(
-        description="simpleaf 10x GEX (± ADT) quantification, with optional OCM demux.",
+        description="simpleaf 10x GEX (± ADT, ± VDJ TCR/BCR) quantification, with optional OCM demux.",
         usage="%(prog)s CONFIG.json [-o DIR] [--skip-quant]",
     )
     ap.add_argument("config", help="JSON config (see README)")
     ap.add_argument("-o", "--output", default=None, help="override config output directory")
-    ap.add_argument("--skip-quant", action="store_true", help="reuse existing simpleaf quants; only merge/demux")
+    ap.add_argument(
+        "--skip-quant",
+        action="store_true",
+        help="reuse existing GEX/ADT quants; VDJ still maps unless {output}/vdj already has libraries",
+    )
     args = ap.parse_args()
     cfg = load_config(Path(args.config))
     if args.output:

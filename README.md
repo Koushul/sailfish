@@ -1,6 +1,6 @@
 # Sailfish
 
-simpleaf / alevin-fry 10x GEX (± ADT), optional Cell Ranger–compatible OCM demux.
+simpleaf / alevin-fry 10x GEX (± ADT, ± VDJ TCR/BCR), optional Cell Ranger–compatible OCM demux.
 
 Needs `simpleaf`, `piscem`, `alevin-fry` on `PATH` (or `export SAILFISH_CONDA=/path/to/conda_env`). Python: `anndata`, `numpy`, `pandas`, `scipy`. Splici indexing also needs `roers` (`cargo install roers`). Sibling `conda_env` / `cargo_tools` are auto-detected. `ALEVIN_FRY_HOME` defaults to `{output}/af_home`.
 
@@ -39,6 +39,29 @@ simpleaf index \
   --kmer-length 7 --minimizer-length 5 --overwrite --threads 16
 # adt.index = adt_feature_index/index
 ```
+
+## VDJ (TCR / BCR)
+
+10x Immune Profiling (typically **5′**) adds VDJ-T and VDJ-B FASTQs that use the same barcode+UMI chemistry as GEX. Cell Ranger `vdj` / `multi` maps those reads to a **V(D)J reference** (`refdata-cellranger-vdj-…/fasta/regions.fa`) and then **assembles** contigs, CDR3s, and clonotypes.
+
+Sailfish uses the same 10x `regions.fa` but maps with **simpleaf / piscem / alevin-fry** (k=21, minimizer 11, `--keep-duplicates`). It does **not** assemble CDR3s or clonotypes. Per barcode it reports the dominant V / J / C gene (UMI) at each locus and a coarse paired flag (TRA V+J and TRB V+J for TCR; IGH V+J plus IGK or IGL V+J for BCR).
+
+Index is built under `{output}/vdj/vdj_index/` from `vdj.reference` (the 10x ref directory or a `regions.fa`). D-segments and sequences shorter than *k* are dropped. `--t2g-map` collapses alleles to 10x gene names.
+
+If TCR/BCR FASTQs are missing, GEX (±ADT, ±OCM) still runs and VDJ is skipped with a warning.
+
+```json
+"vdj": {
+  "reference": "/path/to/refdata-cellranger-vdj-GRCm38-alts-ensembl-7.0.0",
+  "chemistry": "10xv3-5p",
+  "tcr": { "fastqs": "/path/to/E23TB_TCR" },
+  "bcr": { "fastqs": "/path/to/E23TB_BCR" }
+}
+```
+
+`tcr` / `bcr` may instead set `reads1` / `reads2` (Illumina `*_R1_001.fastq.gz` / `*_R2_001.fastq.gz`). Optional `vdj.index` points at a prebuilt `…/index` folder. Example: `configs/e23tb_ocm_vdj.json`.
+
+**Outputs:** `{output}/vdj/{tcr,bcr}_quant/` (simpleaf gene-level counts), `{tcr,bcr}_annotations.csv`, `vdj_run.json`. Columns `tcr_*` / `bcr_*` are attached to the GEX/OCM h5ad `obs`.
 
 ## Config
 
@@ -94,6 +117,12 @@ Omit `adt` for GEX-only; omit `ocm` (or `"mode": "quant"`) to skip demux. Defaul
 | `gex.resolution` | `cr-like` | UMI resolution (`cr-like`, `cr-like-em`, …) |
 | `gex.h5ad` | | Existing GEX `quants.h5ad` (skip GEX map) |
 | `gex.geometry` | | Register `gex.chemistry` with this geometry |
+| `vdj.reference` | | 10x `refdata-cellranger-vdj-*` dir or `fasta/regions.fa` |
+| `vdj.chemistry` | GEX chemistry | Usually `10xv3-5p` (same barcode/UMI as 5′ GEX) |
+| `vdj.tcr` / `vdj.bcr` | omitted | `fastqs` dir or `reads1`/`reads2`; skipped if files are missing |
+| `vdj.index` | `{output}/vdj/vdj_index/index` | Prebuilt simpleaf VDJ index |
+| `vdj.kmer_length` | `21` | piscem k for V/J/C segments |
+| `vdj.minimizer_length` | `11` | piscem minimizer |
 | `adt` | omitted | Same keys as `gex` |
 | `adt.feature_ref` | | Feature CSV to rename ADT (`id`/`name`) |
 | `adt.geometry` | | Custom chemistry (needed for `e14s-adt-10xv4`) |
@@ -105,7 +134,7 @@ Omit `adt` for GEX-only; omit `ocm` (or `"mode": "quant"`) to skip demux. Defaul
 | `cellranger.filtered_mtx` | | `cellranger count` `filtered_feature_bc_matrix` |
 | `existing_quants.gex_h5ad` / `adt_h5ad` | | Same as `gex.h5ad` / `adt.h5ad` |
 
-**Outputs:** quant → `{output}/quant/{sample}_gex[_adt].h5ad` + MTX. OCM → `{output}/ocm/per_sample_outs/<id>/` and `{sample}_gex_adt_ocm.h5ad`. `cellranger.*` adds `compare_to_cellranger.json`.
+**Outputs:** quant → `{output}/quant/{sample}_gex[_adt].h5ad` + MTX. OCM → `{output}/ocm/per_sample_outs/<id>/` and `{sample}_gex_adt_ocm.h5ad`. VDJ → `{output}/vdj/` and `tcr_*`/`bcr_*` columns on those h5ads. `cellranger.*` adds `compare_to_cellranger.json`.
 
 ## Microwell placement
 
