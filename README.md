@@ -19,7 +19,53 @@ or put those binaries on `PATH`. If this repo sits next to `af_tutorial/conda_en
 python run.py my_sample.json
 ```
 
-`ALEVIN_FRY_HOME` is created under `{output}/af_home` unless you set `alevin_fry_home`.
+`ALEVIN_FRY_HOME` is created under `{output}/af_home` unless you set `alevin_fry_home`. Splici GEX indexing also needs `roers` on `PATH` (`cargo install roers` if it is missing).
+
+## Build indices
+
+`gex.index` and `adt.index` in the config must be **simpleaf index directories** (they contain `piscem_idx*` plus `t2g_3col.tsv`). `simpleaf index --output DIR` writes those files under `DIR/index`.
+
+**GEX (splici)** — genome + GTF. This is what produces `spliced` / `unspliced` / `ambiguous` layers. Use a local `--work-dir` (not NFS).
+
+```bash
+export ALEVIN_FRY_HOME="${ALEVIN_FRY_HOME:-./af_home}"
+mkdir -p "$ALEVIN_FRY_HOME"
+simpleaf set-paths
+
+# Mouse GRCm39 (Cell Ranger 2024-A layout). Human: swap in GRCh38 fasta + GTF.
+simpleaf index \
+  --output mouse-2024-A_splici \
+  --fasta /path/to/refdata-gex-GRCm39-2024-A/fasta/genome.fa \
+  --gtf /path/to/refdata-gex-GRCm39-2024-A/genes/genes.gtf \
+  --ref-type spliced+intronic \
+  --rlen 91 \
+  --threads 16 \
+  --work-dir /tmp/${USER}_simpleaf_index
+
+# Point the config at the index folder:
+#   "gex": { "index": "mouse-2024-A_splici/index", "chemistry": "10xv4-3p" }
+```
+
+`--rlen` should match (or slightly exceed) cDNA read length. GEM-X 3′ v4 is typically ~90; 10xv3 often uses 91. Default `--ref-type` is already `spliced+intronic`.
+
+**ADT (feature barcodes)** — 10x-style feature CSV (`id`, `name`, `sequence`). This repo includes `refs/new_feature_ref_quant.csv` (15 bp spatial + antibody barcodes). Use k=7 / minimizer 5 for 15 bp features.
+
+```bash
+simpleaf index \
+  --output adt_feature_index \
+  --feature-csv refs/new_feature_ref_quant.csv \
+  --kmer-length 7 \
+  --minimizer-length 5 \
+  --overwrite \
+  --threads 16
+
+#   "adt": {
+#     "index": "adt_feature_index/index",
+#     "feature_ref": "refs/new_feature_ref_quant.csv",
+#     "chemistry": "e14s-adt-10xv4",
+#     "geometry": "1{b[16]u[12]x:}2{r[15]x:}"
+#   }
+```
 
 ## Commands
 
