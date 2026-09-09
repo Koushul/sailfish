@@ -1,16 +1,16 @@
 {
   "sample": "E28S",
   "mode": "ocm",
-  "threads": 16,
   "skip_quant": true,
-  "alevin_fry_home": "/ix1/ylee/kor11/tools/af_tutorial/E28S_simpleaf/af_home",
   "output": "/ix1/ylee/kor11/tools/af_tutorial/pipeline/runs/e28s_ocm",
+  "alevin_fry_home": "/ix1/ylee/kor11/tools/af_tutorial/E28S_simpleaf/af_home",
+  "min_gex_umi": 500,
   "gex": {
     "reads1": ["/ix1/ylee/shared/ResequencedE15S_E27_E28S/Y.Lee_10x_07_13_2026_fastq/E28S_GEX_S3_R1_001.fastq.gz"],
     "reads2": ["/ix1/ylee/shared/ResequencedE15S_E27_E28S/Y.Lee_10x_07_13_2026_fastq/E28S_GEX_S3_R2_001.fastq.gz"],
     "index": "/ix1/ylee/kor11/tools/af_tutorial/E28S_simpleaf/mouse-2024-A_splici/index",
     "chemistry": "10xv4-3p",
-    "min_reads": 10
+    "h5ad": "/ix1/ylee/kor11/tools/af_tutorial/E28S_simpleaf/gex_quant_newfeat/af_quant/alevin/quants.h5ad"
   },
   "adt": {
     "reads1": ["/ix1/ylee/shared/ResequencedE15S_E27_E28S/Y.Lee_10x_07_13_2026_fastq/E28S_ADT_S4_R1_001.fastq.gz"],
@@ -18,25 +18,15 @@
     "index": "/ix1/ylee/kor11/tools/af_tutorial/E28S_simpleaf/adt_feature_index_quant/index",
     "chemistry": "e14s-adt-10xv4",
     "feature_ref": "/ix1/ylee/kor11/tools/af_tutorial/E28S_simpleaf/new_feature_ref_quant.csv",
-    "min_reads": 10
-  },
-  "existing_quants": {
-    "gex_h5ad": "/ix1/ylee/kor11/tools/af_tutorial/E28S_simpleaf/gex_quant_newfeat/af_quant/alevin/quants.h5ad",
-    "adt_h5ad": "/ix1/ylee/kor11/tools/af_tutorial/E28S_simpleaf/adt_quant_newfeat/af_quant/alevin/quants.h5ad"
-  },
-  "filter": {
-    "min_gex_umi": 500
+    "h5ad": "/ix1/ylee/kor11/tools/af_tutorial/E28S_simpleaf/adt_quant_newfeat/af_quant/alevin/quants.h5ad"
   },
   "ocm": {
-    "overhang_start": 7,
-    "overhang_len": 2,
-    "include_unassigned": false,
-    "samples": [
-      {"ocm_barcode_id": "OB1", "sample_id": "edge_gfp_plus", "description": "Edge GFP+ hypoxia A223", "overhang": "GT"},
-      {"ocm_barcode_id": "OB2", "sample_id": "edge_gfp_minus", "description": "Edge GFP- hypoxia A223", "overhang": "CA"},
-      {"ocm_barcode_id": "OB3", "sample_id": "core_gfp_plus", "description": "Core GFP+ hypoxia A223", "overhang": "TC"},
-      {"ocm_barcode_id": "OB4", "sample_id": "core_gfp_minus", "description": "Core GFP- hypoxia A223", "overhang": "AG"}
-    ]
+    "samples": {
+      "GT": "edge_gfp_plus",
+      "CA": "edge_gfp_minus",
+      "TC": "core_gfp_plus",
+      "AG": "core_gfp_minus"
+    }
   },
   "cellranger": {
     "per_sample_outs": "/ix1/ylee/kor11/tools/af_tutorial/E28S_cellranger/E28S_ocm/outs/per_sample_outs"

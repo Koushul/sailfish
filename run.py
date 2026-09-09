@@ -3,8 +3,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
-import subprocess
 import sys
 from pathlib import Path
 
@@ -12,7 +10,8 @@ PIPELINE_ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(PIPELINE_ROOT))
 
 from lib.compare import compare_ocm_to_cellranger_multi, compare_to_cellranger_count
-from lib.demux_ocm import GEMX_OCM_DEFAULT, demux_ocm
+from lib.config import normalize_config
+from lib.demux_ocm import demux_ocm
 from lib.env import setup_env
 from lib.io_utils import find_alevin_dir, find_quants_h5ad
 from lib.merge import merge_gex_adt
@@ -24,15 +23,15 @@ def load_config(path: Path) -> dict:
 
 
 def _p(v) -> Path | None:
-    return None if v is None else Path(v)
+    return None if v in (None, "") else Path(v)
 
 
 def resolve_gex_inputs(cfg: dict, outdir: Path) -> tuple[Path | None, Path | None]:
     eq = cfg.get("existing_quants") or {}
     if eq.get("gex_h5ad") and Path(eq["gex_h5ad"]).exists():
         return Path(eq["gex_h5ad"]), None
-    if eq.get("gex_alevin") and Path(eq["gex_alevin"]).exists():
-        return None, Path(eq["gex_alevin"])
+    if cfg["gex"].get("h5ad") and Path(cfg["gex"]["h5ad"]).exists():
+        return Path(cfg["gex"]["h5ad"]), None
     qdir = outdir / "gex_quant"
     if (qdir / "af_quant").exists():
         return find_quants_h5ad(qdir), find_alevin_dir(qdir)
@@ -45,8 +44,8 @@ def resolve_adt_inputs(cfg: dict, outdir: Path) -> tuple[Path | None, Path | Non
     eq = cfg.get("existing_quants") or {}
     if eq.get("adt_h5ad") and Path(eq["adt_h5ad"]).exists():
         return Path(eq["adt_h5ad"]), None
-    if eq.get("adt_alevin") and Path(eq["adt_alevin"]).exists():
-        return None, Path(eq["adt_alevin"])
+    if cfg["adt"].get("h5ad") and Path(cfg["adt"]["h5ad"]).exists():
+        return Path(cfg["adt"]["h5ad"]), None
     qdir = outdir / "adt_quant"
     if (qdir / "af_quant").exists():
         return find_quants_h5ad(qdir), find_alevin_dir(qdir)
@@ -56,19 +55,27 @@ def resolve_adt_inputs(cfg: dict, outdir: Path) -> tuple[Path | None, Path | Non
 def maybe_quant(cfg: dict, outdir: Path, skip_quant: bool) -> None:
     if skip_quant:
         return
+    gex = cfg["gex"]
+    adt = cfg.get("adt")
+    gex_ready = bool(gex.get("h5ad") and Path(gex["h5ad"]).exists())
+    adt_ready = adt is None or bool(adt.get("h5ad") and Path(adt["h5ad"]).exists())
+    if gex_ready and adt_ready:
+        return
     threads = int(cfg.get("threads", 16))
     gex = cfg["gex"]
-    t_gex = int(gex.get("threads", threads))
     chem = cfg.get("chemistries") or {}
     for name, spec in chem.items():
         ensure_chemistry(name, spec["geometry"], spec.get("expected_ori", "fw"))
+    for lib in (gex, cfg.get("adt")):
+        if lib and lib.get("geometry"):
+            ensure_chemistry(lib["chemistry"], lib["geometry"], lib.get("expected_ori", "fw"))
     run_simpleaf_quant(
         reads1=gex["reads1"],
         reads2=gex["reads2"],
         index=Path(gex["index"]),
         chemistry=gex["chemistry"],
         output=outdir / "gex_quant",
-        threads=t_gex,
+        threads=int(gex.get("threads", threads)),
         min_reads=int(gex.get("min_reads", 10)),
         resolution=gex.get("resolution", "cr-like"),
         log_path=outdir / "logs" / "quant_gex.log",
@@ -76,14 +83,13 @@ def maybe_quant(cfg: dict, outdir: Path, skip_quant: bool) -> None:
     adt = cfg.get("adt")
     if not adt:
         return
-    t_adt = int(adt.get("threads", max(8, threads // 4)))
     run_simpleaf_quant(
         reads1=adt["reads1"],
         reads2=adt["reads2"],
         index=Path(adt["index"]),
         chemistry=adt["chemistry"],
         output=outdir / "adt_quant",
-        threads=t_adt,
+        threads=int(adt.get("threads", max(8, threads // 4))),
         min_reads=int(adt.get("min_reads", 10)),
         resolution=adt.get("resolution", "cr-like"),
         log_path=outdir / "logs" / "quant_adt.log",
@@ -91,11 +97,12 @@ def maybe_quant(cfg: dict, outdir: Path, skip_quant: bool) -> None:
 
 
 def run_pipeline(cfg: dict, *, skip_quant: bool | None = None) -> Path:
+    cfg = normalize_config(cfg)
     outdir = Path(cfg["output"])
     outdir.mkdir(parents=True, exist_ok=True)
     (outdir / "logs").mkdir(exist_ok=True)
     (outdir / "run_config.json").write_text(json.dumps(cfg, indent=2) + "\n")
-    setup_env(Path(cfg["alevin_fry_home"]))
+    setup_env(Path(cfg["alevin_fry_home"]), cfg.get("tools"))
     simpleaf_set_paths()
     skip = cfg.get("skip_quant", False) if skip_quant is None else skip_quant
     maybe_quant(cfg, outdir, skip)
@@ -103,19 +110,17 @@ def run_pipeline(cfg: dict, *, skip_quant: bool | None = None) -> Path:
     gex_h5, gex_al = resolve_gex_inputs(cfg, outdir)
     adt_h5, adt_al = resolve_adt_inputs(cfg, outdir)
     if gex_h5 is None and gex_al is None:
-        raise FileNotFoundError("No GEX quantification found; run without --skip-quant or set existing_quants")
+        raise FileNotFoundError("No GEX quantification found. Provide gex.reads1/reads2/index, or gex.h5ad / existing_quants.")
 
-    filt = cfg.get("filter") or {}
-    min_umi = int(filt.get("min_gex_umi", 500))
-    sample = cfg.get("sample", "sample")
-    feat = None
-    if cfg.get("adt"):
-        feat = _p(cfg["adt"].get("feature_ref"))
+    min_umi = int(cfg["min_gex_umi"])
+    sample = cfg["sample"]
+    feat = _p((cfg.get("adt") or {}).get("feature_ref"))
+    cr = cfg.get("cellranger") or {}
     mode = cfg.get("mode", "quant")
 
     if mode == "ocm":
-        ocm = cfg.get("ocm") or {}
-        cr = cfg.get("cellranger") or {}
+        ocm = cfg["ocm"]
+        samples = ocm["samples"]
         demux_ocm(
             gex_h5ad=gex_h5,
             gex_alevin=gex_al,
@@ -125,7 +130,7 @@ def run_pipeline(cfg: dict, *, skip_quant: bool | None = None) -> Path:
             outdir=outdir / "ocm",
             sample=sample,
             min_gex_umi=min_umi,
-            samples=ocm.get("samples") or GEMX_OCM_DEFAULT,
+            samples=samples,
             overhang_start=int(ocm.get("overhang_start", 7)),
             overhang_len=int(ocm.get("overhang_len", 2)),
             include_unassigned=bool(ocm.get("include_unassigned", False)),
@@ -136,7 +141,7 @@ def run_pipeline(cfg: dict, *, skip_quant: bool | None = None) -> Path:
                 outdir / "ocm",
                 Path(cr["per_sample_outs"]),
                 outdir / "ocm" / "compare_to_cellranger.json",
-                sample_ids=[s["sample_id"] for s in (ocm.get("samples") or [])] or None,
+                sample_ids=[s["sample_id"] for s in samples] or None,
             )
         if cr.get("filtered_mtx"):
             compare_to_cellranger_count(
@@ -157,7 +162,6 @@ def run_pipeline(cfg: dict, *, skip_quant: bool | None = None) -> Path:
             min_gex_umi=min_umi,
             chemistry=cfg["gex"].get("chemistry", ""),
         )
-        cr = cfg.get("cellranger") or {}
         if cr.get("filtered_mtx"):
             compare_to_cellranger_count(
                 outdir / "quant" / "filtered_feature_bc_matrix",
@@ -168,63 +172,19 @@ def run_pipeline(cfg: dict, *, skip_quant: bool | None = None) -> Path:
     return outdir
 
 
-def run_cellranger_count(cfg: dict) -> Path:
-    cr = cfg["cellranger"]
-    cellranger = cr.get("bin", "/software/rhel9/manual/install/cellranger/cellranger-10.0.0/cellranger")
-    workdir = Path(cr.get("workdir", cfg["output"]))
-    workdir.mkdir(parents=True, exist_ok=True)
-    run_id = cr.get("id", "cr_count")
-    cmd = [
-        cellranger,
-        "count",
-        f"--id={run_id}",
-        f"--transcriptome={cr['transcriptome']}",
-        f"--fastqs={cr['fastqs']}",
-        f"--localcores={cr.get('localcores', cfg.get('threads', 16))}",
-        f"--localmem={cr.get('localmem', 64)}",
-        "--create-bam=false",
-    ]
-    if cr.get("sample"):
-        cmd.append(f"--sample={cr['sample']}")
-    env = os.environ.copy()
-    env.pop("PYTHONNOUSERSITE", None)
-    subprocess.run(cmd, cwd=workdir, check=True, env=env)
-    return workdir / run_id / "outs" / "filtered_feature_bc_matrix"
-
-
 def main() -> None:
-    ap = argparse.ArgumentParser(description="Dataset-agnostic simpleaf 10x GEX±ADT pipeline (quant or OCM).")
-    sub = ap.add_subparsers(dest="cmd", required=True)
-
-    p_run = sub.add_parser("run", help="Run quant or OCM workflow from a JSON config")
-    p_run.add_argument("--config", required=True)
-    p_run.add_argument("--skip-quant", action="store_true")
-    p_run.add_argument("--output", default=None)
-
-    p_cmp = sub.add_parser("compare-count", help="Compare simpleaf MTX to cellranger count MTX")
-    p_cmp.add_argument("--simpleaf-mtx", required=True)
-    p_cmp.add_argument("--cellranger-mtx", required=True)
-    p_cmp.add_argument("--out-json", required=True)
-    p_cmp.add_argument("--simpleaf-raw-barcodes", default=None)
-
-    p_cr = sub.add_parser("cellranger-count", help="Run cellranger count using paths in the config")
-    p_cr.add_argument("--config", required=True)
-
+    ap = argparse.ArgumentParser(
+        description="simpleaf 10x GEX (± ADT) quantification, with optional OCM demux.",
+        usage="%(prog)s CONFIG.json [-o DIR] [--skip-quant]",
+    )
+    ap.add_argument("config", help="JSON config (see README)")
+    ap.add_argument("-o", "--output", default=None, help="override config output directory")
+    ap.add_argument("--skip-quant", action="store_true", help="reuse existing simpleaf quants; only merge/demux")
     args = ap.parse_args()
-    if args.cmd == "run":
-        cfg = load_config(Path(args.config))
-        if args.output:
-            cfg["output"] = args.output
-        run_pipeline(cfg, skip_quant=True if args.skip_quant else None)
-    elif args.cmd == "compare-count":
-        compare_to_cellranger_count(
-            Path(args.simpleaf_mtx),
-            Path(args.cellranger_mtx),
-            Path(args.out_json),
-            Path(args.simpleaf_raw_barcodes) if args.simpleaf_raw_barcodes else None,
-        )
-    elif args.cmd == "cellranger-count":
-        run_cellranger_count(load_config(Path(args.config)))
+    cfg = load_config(Path(args.config))
+    if args.output:
+        cfg["output"] = args.output
+    run_pipeline(cfg, skip_quant=True if args.skip_quant else None)
 
 
 if __name__ == "__main__":
