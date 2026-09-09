@@ -1,0 +1,40 @@
+{
+  "sample": "pbmc1k_toy",
+  "mode": "ocm",
+  "threads": 16,
+  "skip_quant": false,
+  "alevin_fry_home": "/ix1/ylee/kor11/tools/af_tutorial/af_test_workdir/af_home",
+  "output": "/ix1/ylee/kor11/tools/af_tutorial/pipeline/runs/pbmc1k_toy",
+  "gex": {
+    "reads1": ["/ix1/ylee/kor11/tools/af_tutorial/pipeline/runs/pbmc1k_toy/fastq/pbmc_1k_v3_toy_S1_L001_R1_001.fastq.gz"],
+    "reads2": ["/ix1/ylee/kor11/tools/af_tutorial/pipeline/runs/pbmc1k_toy/fastq/pbmc_1k_v3_toy_S1_L001_R2_001.fastq.gz"],
+    "index": "/ix1/ylee/kor11/tools/af_tutorial/af_test_workdir/human-2024-A_splici/index",
+    "chemistry": "10xv3",
+    "min_reads": 10
+  },
+  "filter": {
+    "min_gex_umi": 50
+  },
+  "ocm": {
+    "overhang_start": 7,
+    "overhang_len": 2,
+    "include_unassigned": true,
+    "samples": [
+      {"ocm_barcode_id": "OB1", "sample_id": "OB1", "description": "OCM OB1", "overhang": "GT"},
+      {"ocm_barcode_id": "OB2", "sample_id": "OB2", "description": "OCM OB2", "overhang": "CA"},
+      {"ocm_barcode_id": "OB3", "sample_id": "OB3", "description": "OCM OB3", "overhang": "TC"},
+      {"ocm_barcode_id": "OB4", "sample_id": "OB4", "description": "OCM OB4", "overhang": "AG"}
+    ]
+  },
+  "cellranger": {
+    "bin": "/software/rhel9/manual/install/cellranger/cellranger-10.0.0/cellranger",
+    "id": "pbmc1k_toy_cr",
+    "workdir": "/ix1/ylee/kor11/tools/af_tutorial/pipeline/runs/pbmc1k_toy/cellranger",
+    "transcriptome": "/ix1/ylee/kor11/tools/af_tutorial/af_test_workdir/data/refdata-gex-GRCh38-2024-A",
+    "fastqs": "/ix1/ylee/kor11/tools/af_tutorial/pipeline/runs/pbmc1k_toy/fastq",
+    "sample": "pbmc_1k_v3_toy",
+    "localcores": 16,
+    "localmem": 64,
+    "filtered_mtx": "/ix1/ylee/kor11/tools/af_tutorial/pipeline/runs/pbmc1k_toy/cellranger/pbmc1k_toy_cr/outs/filtered_feature_bc_matrix"
+  }
+}

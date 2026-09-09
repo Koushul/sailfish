@@ -1,0 +1,35 @@
+{
+  "e28s_quant": {
+    "config": "configs/e28s_quant.json",
+    "mode": "quant",
+    "skip_quant": true,
+    "n_raw": 424301,
+    "n_filtered": 5003,
+    "median_gex_umi": 5813.0,
+    "output": "/ix1/ylee/kor11/tools/af_tutorial/pipeline/runs/e28s_quant/quant/E28S_gex_adt.h5ad"
+  },
+  "e28s_ocm": {
+    "config": "configs/e28s_ocm.json",
+    "mode": "ocm",
+    "skip_quant": true,
+    "all_cr_filtered_recovered_in_sf_raw": true,
+    "all_cr_filtered_recalled": true,
+    "compare": "/ix1/ylee/kor11/tools/af_tutorial/pipeline/runs/e28s_ocm/ocm/compare_to_cellranger.json"
+  },
+  "pbmc1k_toy": {
+    "reads": 2000000,
+    "source": "10x pbmc_1k_v3 lane 1 subsample",
+    "simpleaf_ocm": "/ix1/ylee/kor11/tools/af_tutorial/pipeline/runs/pbmc1k_toy/ocm",
+    "cellranger_count": "/ix1/ylee/kor11/tools/af_tutorial/pipeline/runs/pbmc1k_toy/cellranger/pbmc1k_toy_cr/outs",
+    "cr_estimated_cells": 1129,
+    "compare_ocm_union_vs_cellranger_count": {
+      "sf_filtered": 1251,
+      "cr_filtered": 1129,
+      "filt_recall_of_cr": 1.0,
+      "filt_jaccard": 0.9024780175859313,
+      "cell_umi_pearson": 0.9990903746159379,
+      "gene_umi_pearson": 0.9693990567381044,
+      "cr_filt_in_sf_raw": 1.0
+    }
+  }
+}

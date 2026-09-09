@@ -1,0 +1,21 @@
+{
+  "sample": "pbmc1k_toy",
+  "mode": "quant",
+  "threads": 16,
+  "skip_quant": true,
+  "alevin_fry_home": "/ix1/ylee/kor11/tools/af_tutorial/af_test_workdir/af_home",
+  "output": "/ix1/ylee/kor11/tools/af_tutorial/pipeline/runs/pbmc1k_toy",
+  "gex": {
+    "reads1": ["/ix1/ylee/kor11/tools/af_tutorial/pipeline/runs/pbmc1k_toy/fastq/pbmc_1k_v3_toy_S1_L001_R1_001.fastq.gz"],
+    "reads2": ["/ix1/ylee/kor11/tools/af_tutorial/pipeline/runs/pbmc1k_toy/fastq/pbmc_1k_v3_toy_S1_L001_R2_001.fastq.gz"],
+    "index": "/ix1/ylee/kor11/tools/af_tutorial/af_test_workdir/human-2024-A_splici/index",
+    "chemistry": "10xv3",
+    "min_reads": 10
+  },
+  "filter": {
+    "min_gex_umi": 50
+  },
+  "cellranger": {
+    "filtered_mtx": "/ix1/ylee/kor11/tools/af_tutorial/pipeline/runs/pbmc1k_toy/cellranger/pbmc1k_toy_cr/outs/filtered_feature_bc_matrix"
+  }
+}
