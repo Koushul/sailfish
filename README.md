@@ -106,3 +106,11 @@ Omit `adt` for GEX-only; omit `ocm` (or `"mode": "quant"`) to skip demux. Defaul
 | `existing_quants.gex_h5ad` / `adt_h5ad` | | Same as `gex.h5ad` / `adt.h5ad` |
 
 **Outputs:** quant → `{output}/quant/{sample}_gex[_adt].h5ad` + MTX. OCM → `{output}/ocm/per_sample_outs/<id>/` and `{sample}_gex_adt_ocm.h5ad`. `cellranger.*` adds `compare_to_cellranger.json`.
+
+## Microwell placement
+
+`placement/cell_placement.py` is the entropy localizer used by
+https://lucid-crystal-kmqy.here.now/ (MAP well + discrete/spatial entropy).
+Layout: `placement/layouts/chip_layout.xlsx` (source oligos) and
+`placement/layouts/data.js` (published 48×48 barcode map). See `placement/README.md`.
+
