@@ -5,3 +5,5 @@ __pycache__/
 *.fastq.gz
 *.mtx
 *.mtx.gz
+placement/sites/
+.herenow/

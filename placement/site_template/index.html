@@ -1,0 +1,1646 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>48×48 Microwell Layout &amp; Cell Localization</title>
+  <style>
+    :root {
+      --bg: #000000;
+      --text: #ffffff;
+      --muted: #8a8a8a;
+      --accent: #6bcf9e;
+      --warn: #e8c547;
+      --bad: #e05c5c;
+      --plate1: #6bcf9e;
+      --plate2: #e8c547;
+      --line: #1a1a1a;
+      --panel: #0a0a0a;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: "Courier New", "Roboto Mono", ui-monospace, monospace;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    header {
+      padding: 0.85rem 1.25rem;
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      flex-wrap: wrap;
+    }
+
+    header h1 {
+      margin: 0;
+      font-size: 0.95rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    header p {
+      margin: 0.2rem 0 0;
+      color: var(--muted);
+      font-size: 0.72rem;
+    }
+
+    .head-right { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 300px minmax(0, 1fr) 330px;
+      height: calc(100vh - 62px);
+    }
+
+    .grid-wrap {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1.25rem;
+      overflow: auto;
+      background:
+        radial-gradient(ellipse 80% 60% at 50% 40%, #0d1a12 0%, transparent 70%),
+        var(--bg);
+    }
+
+    .chip {
+      padding: 12px;
+      border-radius: 12px;
+      background: linear-gradient(145deg, #0e0e0e, #050505);
+      border: 1px solid #1e1e1e;
+      box-shadow: 0 0 0 1px #000, 0 20px 60px rgba(0,0,0,0.7), inset 0 1px 0 rgba(255,255,255,0.04);
+    }
+
+    .chip-label {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      font-size: 0.6rem;
+      color: var(--muted);
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+      gap: 1rem;
+    }
+
+    .chip-label .readout { color: var(--accent); letter-spacing: 0.05em; }
+
+    canvas#chip {
+      display: block;
+      cursor: crosshair;
+      border-radius: 4px;
+      width: 620px;
+      height: 620px;
+      max-width: min(74vh, calc(100vw - 700px));
+      max-height: min(74vh, calc(100vw - 700px));
+    }
+
+    .panel {
+      background: #050505;
+      padding: 1.05rem;
+      overflow-y: auto;
+    }
+
+    .panel.left { border-right: 1px solid var(--line); }
+    .panel.right { border-left: 1px solid var(--line); }
+
+    h2 {
+      margin: 0 0 0.5rem;
+      font-size: 0.68rem;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--muted);
+    }
+
+    .section { margin-bottom: 1.35rem; }
+    .section:last-child { margin-bottom: 0; }
+
+    .coords {
+      color: var(--accent);
+      font-size: 1.05rem;
+      font-weight: 700;
+      margin-bottom: 0.6rem;
+      letter-spacing: 0.05em;
+    }
+
+    .hint { color: var(--muted); font-size: 0.72rem; line-height: 1.5; }
+
+    /* ---- controls ---- */
+    .seg {
+      display: inline-flex;
+      border: 1px solid #2a2a2a;
+      border-radius: 5px;
+      overflow: hidden;
+    }
+
+    .seg button {
+      background: #0a0a0a;
+      color: var(--muted);
+      border: none;
+      font-family: inherit;
+      font-size: 0.68rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      padding: 0.38rem 0.7rem;
+      cursor: pointer;
+    }
+
+    .seg button + button { border-left: 1px solid #2a2a2a; }
+    .seg button.active { background: var(--accent); color: #04150c; font-weight: 700; }
+    .seg button:hover:not(.active) { color: var(--text); background: #141414; }
+
+    label.field {
+      display: block;
+      font-size: 0.63rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #666;
+      margin: 0.7rem 0 0.28rem;
+    }
+
+    label.field .val { color: var(--accent); float: right; text-transform: none; letter-spacing: 0; }
+
+    select, input[type="search"] {
+      background: #0a0a0a;
+      border: 1px solid #2a2a2a;
+      color: var(--text);
+      border-radius: 4px;
+      padding: 0.38rem 0.5rem;
+      font-family: inherit;
+      font-size: 0.72rem;
+      width: 100%;
+    }
+
+    input[type="search"] { width: 240px; }
+    select:focus, input[type="search"]:focus { outline: none; border-color: var(--accent); }
+
+    input[type="range"] {
+      -webkit-appearance: none;
+      width: 100%;
+      height: 3px;
+      background: #232323;
+      border-radius: 2px;
+      margin: 0.35rem 0 0;
+    }
+
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 13px;
+      height: 13px;
+      border-radius: 50%;
+      background: var(--accent);
+      cursor: pointer;
+      border: 2px solid #04150c;
+    }
+
+    input[type="checkbox"] { accent-color: var(--accent); }
+
+    .checkline {
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+      font-size: 0.68rem;
+      color: var(--muted);
+      margin-top: 0.6rem;
+      cursor: pointer;
+    }
+
+    canvas#hist {
+      width: 100%;
+      height: 110px;
+      display: block;
+      margin-top: 0.4rem;
+      cursor: ew-resize;
+      border-radius: 3px;
+      background: #080808;
+    }
+
+    canvas.spark {
+      width: 100%;
+      height: 46px;
+      display: block;
+      margin-top: 0.25rem;
+      border-radius: 3px;
+      background: #080808;
+    }
+
+    /* ---- stats ---- */
+    .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 0.4rem 0.8rem; }
+
+    .stat { border-top: 1px solid var(--line); padding-top: 0.3rem; }
+    .stat .k { font-size: 0.58rem; color: #5a5a5a; text-transform: uppercase; letter-spacing: 0.07em; }
+    .stat .v { font-size: 0.85rem; font-weight: 700; color: var(--text); }
+
+    /* ---- colorbar ---- */
+    .colorbar { height: 9px; border-radius: 2px; margin-top: 0.45rem; }
+    .cb-labels { display: flex; justify-content: space-between; font-size: 0.58rem; color: #5a5a5a; margin-top: 0.2rem; }
+
+    /* ---- cell list ---- */
+    .cell-list { max-height: 300px; overflow-y: auto; margin-top: 0.4rem; }
+
+    .cell-row {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 0.4rem;
+      align-items: center;
+      padding: 0.35rem 0.4rem;
+      border-radius: 3px;
+      cursor: pointer;
+      border: 1px solid transparent;
+    }
+
+    .cell-row:hover { background: #101010; }
+    .cell-row.active { background: #10241a; border-color: var(--accent); }
+    .cell-row .nm { font-size: 0.66rem; color: #ddd; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .cell-row .hv { font-size: 0.64rem; font-weight: 700; text-align: right; }
+
+    .plate-block {
+      margin-top: 0.7rem;
+      padding: 0.65rem;
+      border-radius: 6px;
+      background: var(--panel);
+      border: 1px solid #1e1e1e;
+    }
+
+    .plate-block h3 {
+      margin: 0 0 0.5rem;
+      font-size: 0.64rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      color: var(--muted);
+    }
+
+    .dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+    .dot.p1 { background: var(--plate1); }
+    .dot.p2 { background: var(--plate2); }
+
+    .barcode-card { padding: 0.45rem 0; border-top: 1px solid var(--line); }
+    .barcode-card:first-of-type { border-top: none; padding-top: 0; }
+    .barcode-card .axis { font-size: 0.58rem; color: #555; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 0.12rem; }
+    .barcode-card .name { font-size: 0.78rem; font-weight: 700; color: var(--text); word-break: break-all; }
+    .barcode-card .meta { margin-top: 0.15rem; font-size: 0.64rem; color: var(--muted); }
+
+    .seq { margin-top: 0.3rem; font-size: 0.55rem; line-height: 1.35; color: #555; word-break: break-all; max-height: 2.6rem; overflow: hidden; cursor: pointer; }
+    .seq.expanded { max-height: none; color: #777; }
+
+    .legend { margin-top: 1rem; padding-top: 0.8rem; border-top: 1px solid var(--line); font-size: 0.64rem; color: #555; line-height: 1.55; }
+
+    .pill {
+      display: inline-block;
+      font-size: 0.58rem;
+      padding: 0.12rem 0.4rem;
+      border-radius: 99px;
+      border: 1px solid #2a2a2a;
+      color: var(--muted);
+      margin-left: 0.35rem;
+    }
+
+    button.ghost {
+      background: #0a0a0a;
+      border: 1px solid #2a2a2a;
+      color: var(--muted);
+      font-family: inherit;
+      font-size: 0.64rem;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      padding: 0.35rem 0.6rem;
+      border-radius: 4px;
+      cursor: pointer;
+      margin-top: 0.6rem;
+    }
+
+    button.ghost:hover { color: var(--text); border-color: var(--accent); }
+
+    .dataset-wrap {
+      display: flex; align-items: center; gap: 0.45rem;
+      font-size: 0.7rem; color: var(--muted); letter-spacing: 0.06em; text-transform: uppercase;
+    }
+    .dataset-wrap select {
+      background: #0c0c0c; color: var(--text); border: 1px solid #2a2a2a;
+      border-radius: 6px; padding: 0.35rem 0.55rem; font: inherit; letter-spacing: 0.04em;
+    }
+    .dataset-wrap select:focus { outline: 1px solid var(--accent); }
+
+    @media (max-width: 1250px) {
+      .layout { grid-template-columns: 1fr; height: auto; }
+      .panel.left, .panel.right { border: none; border-top: 1px solid var(--line); }
+      canvas#chip { max-width: min(88vw, 620px); max-height: min(88vw, 620px); }
+    }
+  </style>
+<meta property="og:title" content="48x48 Microwell Layout and Cell Localization" />
+<meta property="og:description" content="An interactive visualization tool for analyzing microwell layouts, cell localization, and spatial entropy across experimental datasets." />
+<meta property="og:url" content="https://lucid-crystal-kmqy.here.now/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://here.now/og/lucid-crystal-kmqy.jpg" />
+<meta property="og:image:width" content="1280" />
+<meta property="og:image:height" content="720" />
+<meta name="twitter:image" content="https://here.now/og/lucid-crystal-kmqy.jpg" />
+<meta name="twitter:card" content="summary_large_image" /></head>
+<body>
+  <header>
+    <div>
+      <h1>48×48 Microwell Layout &amp; Cell Localization</h1>
+      <p id="subtitle">Hover a microwell to inspect barcodes; switch to Cells to position all cells and assess entropy</p>
+    </div>
+    <div class="head-right">
+      <label class="dataset-wrap" title="Experiment / dataset">
+        <span class="dataset-label">Dataset</span>
+        <select id="dataset-sel">
+          <option value="E28S" selected>E28S</option>
+          <option value="E14S">E14S</option>
+          <option value="E15S">E15S</option>
+        </select>
+      </label>
+      <div class="seg" id="mode-seg">
+        <button data-mode="barcodes" class="active">Barcodes</button>
+        <button data-mode="cells">Cells</button>
+      </div>
+      <input id="search" type="search" placeholder="Find barcode or cell (obs_name)" />
+    </div>
+  </header>
+
+  <div class="layout">
+    <!-- ================= LEFT: controls ================= -->
+    <aside class="panel left">
+      <div class="section" id="ctl-plates">
+        <h2>Plates</h2>
+        <label class="checkline"><input type="checkbox" id="plate-1" checked /><span class="dot p1"></span> Plate 1</label>
+        <label class="checkline"><input type="checkbox" id="plate-2" checked /><span class="dot p2"></span> Plate 2</label>
+        <p class="hint" id="plate-hint">Both plates combined for localization.</p>
+      </div>
+
+      <div class="section" id="ctl-cells">
+        <h2>Color wells by</h2>
+        <select id="color-by">
+          <option value="count">Cell count</option>
+          <option value="meanH" selected>Mean entropy</option>
+          <option value="minH">Min entropy</option>
+          <option value="maxConf">Max confidence</option>
+          <option value="counts">Median UMI counts</option>
+        </select>
+
+        <h2 style="margin-top:1.1rem">Overlay</h2>
+        <div class="seg" id="overlay-seg">
+          <button data-overlay="heat" class="active">Heatmap</button>
+          <button data-overlay="dots">Dots</button>
+        </div>
+
+        <div class="colorbar" id="colorbar"></div>
+        <div class="cb-labels"><span id="cb-lo">—</span><span id="cb-hi">—</span></div>
+
+        <label class="field">Min total entropy <span class="val" id="v-hmin">0.00</span></label>
+        <input type="range" id="h-min" min="0" max="1000" value="0" />
+        <label class="field">Max total entropy <span class="val" id="v-hmax">11.17</span></label>
+        <input type="range" id="h-max" min="0" max="1000" value="1000" />
+        <label class="field">Min confidence <span class="val" id="v-cmin">0.00</span></label>
+        <input type="range" id="c-min" min="0" max="1000" value="0" />
+        <label class="field">Min UMI counts <span class="val" id="v-umin">0</span></label>
+        <input type="range" id="u-min" min="0" max="1000" value="0" />
+
+        <label class="checkline"><input type="checkbox" id="log-density" /> Log scale for count/UMI</label>
+        <button class="ghost" id="reset-filters">Reset filters</button>
+
+        <h2 style="margin-top:1.1rem">Spatial entropy</h2>
+        <label class="checkline"><input type="checkbox" id="spatial-on" /> Weight by microwell proximity</label>
+        <label class="field">Gaussian σ (wells) <span class="val" id="v-sigma">1.50</span></label>
+        <input type="range" id="spatial-sigma" min="5" max="80" value="15" disabled />
+        <p class="hint" id="spatial-hint">Off uses discrete H(row)+H(col). On smooths the joint posterior so nearby alternate wells lower entropy vs distant splits.</p>
+      </div>
+      <div class="section">
+        <h2 id="hist-title">Total entropy distribution <span class="pill" id="hist-pill">bits</span></h2>
+        <canvas id="hist" width="560" height="220"></canvas>
+        <p class="hint" id="hist-hint">Drag across the histogram to set the entropy window.</p>
+      </div>
+
+      <div class="section">
+        <h2>Filtered cohort</h2>
+        <div class="stats" id="stats"></div>
+      </div>
+    </aside>
+
+    <!-- ================= CENTER: grid ================= -->
+    <div class="grid-wrap">
+      <div class="chip">
+        <div class="chip-label">
+          <span id="chip-title">Spatial hash chip</span>
+          <span class="readout" id="chip-readout">—</span>
+        </div>
+        <canvas id="chip" width="620" height="620"></canvas>
+      </div>
+    </div>
+
+    <!-- ================= RIGHT: inspector ================= -->
+    <aside class="panel right">
+      <h2>Microwell</h2>
+      <div class="coords" id="coords">—</div>
+      <p class="hint" id="hint">Hover over any microwell to see row &amp; column barcode names.</p>
+
+      <div class="section" id="well-cells-block" hidden>
+        <h2>Cells in this well <span class="pill" id="well-count-pill">0</span></h2>
+        <div class="cell-list" id="cell-list"></div>
+      </div>
+
+      <div class="section" id="cell-detail" hidden>
+        <h2>Selected cell</h2>
+        <div id="cell-detail-body"></div>
+        <h2 style="margin-top:0.9rem">Row marginal (48)</h2>
+        <canvas class="spark" id="spark-row" width="600" height="92"></canvas>
+        <h2 style="margin-top:0.6rem">Column marginal (48)</h2>
+        <canvas class="spark" id="spark-col" width="600" height="92"></canvas>
+        <button class="ghost" id="clear-cell">Clear cell selection</button>
+      </div>
+
+      <div id="details" hidden></div>
+
+      <div class="legend" id="legend">
+        Each position is defined by one <strong style="color:#aaa">row</strong> and one
+        <strong style="color:#aaa">column</strong> spatial hash oligo.
+        Plate 1 and Plate 2 each contribute independent row/column sets (192 oligos total).
+      </div>
+    </aside>
+  </div>
+
+  <script src="data.js"></script>
+  <script>
+    const GRID = 48;
+    const SIZE = 620;
+    const PAD = 7;
+    const GAP = 2;
+    const CELL = (SIZE - PAD * 2 - GAP * (GRID - 1)) / GRID;
+    const DATASETS = {
+      E28S: { path: 'datasets/E28S/cells.js', note: 'edge/core hypoxia OCM · original published assignment' },
+      E14S: { path: 'datasets/E14S/cells.js', note: 'entropy assignment · layout UMI≥10, GEX≥500' },
+      E15S: { path: 'datasets/E15S/cells.js', note: 'entropy assignment · layout UMI≥10, GEX≥500' },
+    };
+
+    const canvas = document.getElementById('chip');
+    const ctx = canvas.getContext('2d');
+    const histCanvas = document.getElementById('hist');
+    const hctx = histCanvas.getContext('2d');
+
+    const lookup = { row: { 1: {}, 2: {} }, col: { 1: {}, 2: {} } };
+
+    /**
+     * Match a canvas backing store to its CSS box times the device pixel ratio, then
+     * scale the context so drawing code can keep working in CSS pixels. Without this the
+     * fixed width/height attributes get stretched to whatever the layout gives us, which
+     * both distorts the aspect ratio and blurs everything.
+     */
+    function fitCanvas(cv, c2d) {
+      const dpr = window.devicePixelRatio || 1;
+      const r = cv.getBoundingClientRect();
+      const w = Math.max(1, r.width);
+      const h = Math.max(1, r.height);
+      const bw = Math.round(w * dpr);
+      const bh = Math.round(h * dpr);
+      if (cv.width !== bw || cv.height !== bh) { cv.width = bw; cv.height = bh; }
+      c2d.setTransform(dpr, 0, 0, dpr, 0, 0);
+      return { w, h };
+    }
+
+    /** The chip draws in a fixed SIZE×SIZE logical space, scaled to fill its CSS box crisply. */
+    function fitChip() {
+      const dpr = window.devicePixelRatio || 1;
+      const r = canvas.getBoundingClientRect();
+      const d = Math.max(1, Math.round(Math.min(r.width, r.height) * dpr));
+      if (canvas.width !== d || canvas.height !== d) { canvas.width = d; canvas.height = d; }
+      const s = d / SIZE;
+      ctx.setTransform(s, 0, 0, s, 0, 0);
+    }
+
+    const state = {
+      mode: 'barcodes',
+      overlay: 'heat',
+      colorBy: 'meanH',
+      hoverRow: null,
+      hoverCol: null,
+      selRow: 1,
+      selCol: 1,
+      selCell: null,
+      hMin: 0,
+      hMax: 0,
+      cMin: 0,
+      uMin: 0,
+      logDensity: false,
+      plate1: true,
+      plate2: true,
+      spatialOn: false,
+      spatialSigma: 1.5,
+    };
+
+    // ---------------------------------------------------------------- cell data
+    let CD = null;
+    let currentDataset = 'E28S';
+    let M = null;            // mutable per-cell metrics (entropy, MAP, confidence)
+    let rowPost = null;      // Uint8Array, n * 48, peak-normalized
+    let colPost = null;
+    let rowLlP1 = null;      // Float32Array per-plate log-likelihoods
+    let rowLlP2 = null;
+    let colLlP1 = null;
+    let colLlP2 = null;
+    let rowPriorP1 = null;
+    let rowPriorP2 = null;
+    let colPriorP1 = null;
+    let colPriorP2 = null;
+    let hasPlateLl = false;
+    let maxH = 2 * Math.log2(GRID);
+    let maxUmi = 1;
+    let wellCells = [];      // per-well array of cell indices (unfiltered)
+    let passing = null;      // Uint8Array mask of cells passing the filter
+    let wellStats = [];      // per-well aggregates over passing cells
+
+    function b64ToBytes(b64) {
+      const bin = atob(b64);
+      const out = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+      return out;
+    }
+
+    function f32FromB64(b64) {
+      const bytes = b64ToBytes(b64);
+      return new Float32Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 4);
+    }
+
+    function entropyBits(p) {
+      const log2 = Math.log(2);
+      let h = 0;
+      for (let k = 0; k < p.length; k++) {
+        const v = p[k];
+        if (v > 1e-300) h -= v * Math.log(v) / log2;
+      }
+      return h;
+    }
+
+    /** 1D Gaussian kernel on the integer well axis, normalized to sum 1. */
+    function gaussianKernel1D(sigma) {
+      const rad = Math.max(1, Math.ceil(3 * sigma));
+      const k = new Float64Array(2 * rad + 1);
+      const inv = 1 / (2 * sigma * sigma);
+      let sum = 0;
+      for (let i = -rad; i <= rad; i++) {
+        const v = Math.exp(-i * i * inv);
+        k[i + rad] = v;
+        sum += v;
+      }
+      for (let i = 0; i < k.length; i++) k[i] /= sum;
+      return { k, rad, k0: k[rad] };
+    }
+
+    /** 'same' 1D convolution of a length-GRID vector with a centered kernel. */
+    function conv1dSame(p, kern) {
+      const { k, rad } = kern;
+      const out = new Float64Array(GRID);
+      for (let i = 0; i < GRID; i++) {
+        let s = 0;
+        for (let j = -rad; j <= rad; j++) {
+          const t = i - j;
+          if (t >= 0 && t < GRID) s += p[t] * k[j + rad];
+        }
+        out[i] = s;
+      }
+      return out;
+    }
+
+    /**
+     * Spatially-aware entropy of the factorized joint Π = π_row ⊗ π_col.
+     * Because the Gaussian is separable, Π ∗ K = (π_row ∗ g) ⊗ (π_col ∗ g).
+     * Raw: H = −Σ Π log2(Π ∗ K) + log2(K(0)), clipped at 0 (delta → 0).
+     * Then scale so a uniform posterior maps to maxH = 2·log2(48), matching
+     * the discrete entropy ceiling for filters / colorbars.
+     */
+    const _spatialScaleCache = { sigma: NaN, scale: 1 };
+
+    function spatialEntropyBitsRaw(rp, cp, sigma) {
+      const kern = gaussianKernel1D(sigma);
+      let sr = conv1dSame(rp, kern);
+      let sc = conv1dSame(cp, kern);
+      let sumR = 0, sumC = 0;
+      for (let k = 0; k < GRID; k++) { sumR += sr[k]; sumC += sc[k]; }
+      if (sumR > 1e-300) for (let k = 0; k < GRID; k++) sr[k] /= sumR;
+      if (sumC > 1e-300) for (let k = 0; k < GRID; k++) sc[k] /= sumC;
+
+      const log2 = Math.log(2);
+      let h = 0;
+      for (let k = 0; k < GRID; k++) {
+        if (rp[k] > 1e-300 && sr[k] > 1e-300) h -= rp[k] * Math.log(sr[k]) / log2;
+        if (cp[k] > 1e-300 && sc[k] > 1e-300) h -= cp[k] * Math.log(sc[k]) / log2;
+      }
+      const calib = 2 * Math.log(kern.k0) / log2;
+      return Math.max(0, h + calib);
+    }
+
+    function spatialEntropyScale(sigma) {
+      if (_spatialScaleCache.sigma === sigma) return _spatialScaleCache.scale;
+      const uni = new Float64Array(GRID);
+      for (let k = 0; k < GRID; k++) uni[k] = 1 / GRID;
+      const href = spatialEntropyBitsRaw(uni, uni, sigma);
+      const scale = href > 1e-300 ? maxH / href : 1;
+      _spatialScaleCache.sigma = sigma;
+      _spatialScaleCache.scale = scale;
+      return scale;
+    }
+
+    function spatialEntropyBits(rp, cp, sigma) {
+      const raw = spatialEntropyBitsRaw(rp, cp, sigma);
+      return Math.min(maxH, raw * spatialEntropyScale(sigma));
+    }
+
+    function entropyMetricLabel() {
+      return state.spatialOn
+        ? `spatial H (σ=${state.spatialSigma.toFixed(2)})`
+        : 'discrete H(row)+H(col)';
+    }
+
+    function syncSpatialUi() {
+      const sigmaEl = document.getElementById('spatial-sigma');
+      const onEl = document.getElementById('spatial-on');
+      if (!sigmaEl || !onEl) return;
+      onEl.checked = state.spatialOn;
+      sigmaEl.disabled = !state.spatialOn;
+      sigmaEl.value = String(Math.round(state.spatialSigma * 10));
+      document.getElementById('v-sigma').textContent = state.spatialSigma.toFixed(2);
+      const hint = document.getElementById('spatial-hint');
+      if (hint) {
+        hint.textContent = state.spatialOn
+          ? `Active: spatial entropy range-normalized to the same 0–${maxH.toFixed(2)} bit ceiling as discrete (σ=${state.spatialSigma.toFixed(2)}).`
+          : 'Off uses discrete H(row)+H(col). On smooths the joint posterior so nearby alternate wells score lower than distant splits, then rescales to the same bit range.';
+      }
+      const pill = document.getElementById('hist-pill');
+      if (pill) pill.textContent = state.spatialOn ? 'spatial bits' : 'bits';
+      const histTitle = document.getElementById('hist-title');
+      if (histTitle) {
+        histTitle.innerHTML = state.spatialOn
+          ? 'Spatial entropy distribution <span class="pill" id="hist-pill">spatial bits</span>'
+          : 'Total entropy distribution <span class="pill" id="hist-pill">bits</span>';
+      }
+    }
+
+    function normalizeLogPost(lp) {
+      let max = -Infinity;
+      for (let k = 0; k < GRID; k++) max = Math.max(max, lp[k]);
+      const p = new Float64Array(GRID);
+      let sum = 0;
+      for (let k = 0; k < GRID; k++) {
+        p[k] = Math.exp(lp[k] - max);
+        sum += p[k];
+      }
+      for (let k = 0; k < GRID; k++) p[k] /= sum;
+      return p;
+    }
+
+    function combineAxisLogPost(offset, llP1, llP2, priorP1, priorP2) {
+      const lp = new Float64Array(GRID);
+      let plateCount = 0;
+      for (let k = 0; k < GRID; k++) {
+        let ll = 0;
+        let priorSum = 0;
+        if (state.plate1) {
+          ll += llP1[offset + k];
+          priorSum += priorP1[k];
+          plateCount++;
+        }
+        if (state.plate2) {
+          ll += llP2[offset + k];
+          priorSum += priorP2[k];
+          plateCount++;
+        }
+        lp[k] = ll + priorSum / plateCount;
+      }
+      return lp;
+    }
+
+    function peakNormToUint8(p, offset, out) {
+      let peak = 0;
+      for (let k = 0; k < GRID; k++) peak = Math.max(peak, p[k]);
+      const inv = peak > 1e-300 ? 255 / peak : 0;
+      for (let k = 0; k < GRID; k++) out[offset + k] = Math.round(p[k] * inv);
+    }
+
+    function rebuildWellCells() {
+      wellCells = new Array(GRID * GRID);
+      for (let i = 0; i < CD.n_cells; i++) {
+        const k = (M.map_row[i] - 1) * GRID + (M.map_col[i] - 1);
+        (wellCells[k] || (wellCells[k] = [])).push(i);
+      }
+    }
+
+    function recomputeMetrics() {
+      if (!CD || !M) return;
+      if (!hasPlateLl) return;
+
+      for (let i = 0; i < CD.n_cells; i++) {
+        const off = i * GRID;
+        const rp = normalizeLogPost(combineAxisLogPost(off, rowLlP1, rowLlP2, rowPriorP1, rowPriorP2));
+        const cp = normalizeLogPost(combineAxisLogPost(off, colLlP1, colLlP2, colPriorP1, colPriorP2));
+        peakNormToUint8(rp, off, rowPost);
+        peakNormToUint8(cp, off, colPost);
+
+        let maxR = 0, maxC = 0, argR = 0, argC = 0;
+        for (let k = 0; k < GRID; k++) {
+          if (rp[k] > maxR) { maxR = rp[k]; argR = k; }
+          if (cp[k] > maxC) { maxC = cp[k]; argC = k; }
+        }
+        M.map_row[i] = argR + 1;
+        M.map_col[i] = argC + 1;
+        M.confidence[i] = maxR * maxC;
+        M.row_entropy[i] = entropyBits(rp);
+        M.col_entropy[i] = entropyBits(cp);
+        M.discrete_entropy[i] = M.row_entropy[i] + M.col_entropy[i];
+        M.spatial_entropy[i] = state.spatialOn
+          ? spatialEntropyBits(rp, cp, state.spatialSigma)
+          : M.discrete_entropy[i];
+        M.total_entropy[i] = state.spatialOn ? M.spatial_entropy[i] : M.discrete_entropy[i];
+      }
+      rebuildWellCells();
+    }
+
+    function plateHintText() {
+      if (state.plate1 && state.plate2) return 'Both plates combined for localization.';
+      if (state.plate1) return 'Plate 1 only — row/col barcodes from Plate 1.';
+      return 'Plate 2 only — row/col barcodes from Plate 2.';
+    }
+
+    function updatePlateHint() {
+      const el = document.getElementById('plate-hint');
+      if (el) el.textContent = plateHintText();
+    }
+
+    function initCellData() {
+      if (!CD) return;
+      rowPost = b64ToBytes(CD.row_post_b64);
+      colPost = b64ToBytes(CD.col_post_b64);
+      maxH = CD.max_entropy_bits || maxH;
+      maxUmi = Math.max(...CD.total_counts);
+      state.hMax = maxH;
+      M = {
+        map_row: CD.map_row.slice(),
+        map_col: CD.map_col.slice(),
+        confidence: CD.confidence.slice(),
+        row_entropy: CD.row_entropy.slice(),
+        col_entropy: CD.col_entropy.slice(),
+        total_entropy: CD.total_entropy.slice(),
+        discrete_entropy: CD.total_entropy.slice(),
+        spatial_entropy: CD.total_entropy.slice(),
+      };
+
+      hasPlateLl = CD.row_ll_p1_b64 && CD.row_ll_p2_b64 && CD.col_ll_p1_b64 && CD.col_ll_p2_b64;
+      if (hasPlateLl) {
+        rowLlP1 = f32FromB64(CD.row_ll_p1_b64);
+        rowLlP2 = f32FromB64(CD.row_ll_p2_b64);
+        colLlP1 = f32FromB64(CD.col_ll_p1_b64);
+        colLlP2 = f32FromB64(CD.col_ll_p2_b64);
+        rowPriorP1 = CD.row_prior_p1;
+        rowPriorP2 = CD.row_prior_p2;
+        colPriorP1 = CD.col_prior_p1;
+        colPriorP2 = CD.col_prior_p2;
+      } else {
+        document.getElementById('plate-hint').textContent +=
+          ' Re-run export_cells.py to recompute localization per plate.';
+      }
+
+      rebuildWellCells();
+      passing = new Uint8Array(CD.n_cells);
+      applyFilters();
+    }
+
+    function applyFilters() {
+      if (!CD) return;
+      for (let i = 0; i < CD.n_cells; i++) {
+        const h = M.total_entropy[i];
+        passing[i] =
+          h >= state.hMin && h <= state.hMax &&
+          M.confidence[i] >= state.cMin &&
+          CD.total_counts[i] >= state.uMin ? 1 : 0;
+      }
+      computeWellStats();
+    }
+
+    function median(sorted) {
+      if (!sorted.length) return 0;
+      const m = sorted.length >> 1;
+      return sorted.length % 2 ? sorted[m] : (sorted[m - 1] + sorted[m]) / 2;
+    }
+
+    function computeWellStats() {
+      wellStats = new Array(GRID * GRID);
+      for (let k = 0; k < GRID * GRID; k++) {
+        const ids = wellCells[k];
+        if (!ids) continue;
+        let count = 0, sumH = 0, minH = Infinity, maxConf = 0;
+        const umis = [];
+        for (const i of ids) {
+          if (!passing[i]) continue;
+          count++;
+          sumH += M.total_entropy[i];
+          if (M.total_entropy[i] < minH) minH = M.total_entropy[i];
+          if (M.confidence[i] > maxConf) maxConf = M.confidence[i];
+          umis.push(CD.total_counts[i]);
+        }
+        if (!count) continue;
+        umis.sort((a, b) => a - b);
+        wellStats[k] = { count, meanH: sumH / count, minH, maxConf, counts: median(umis) };
+      }
+    }
+
+    // ---------------------------------------------------------------- colormaps
+    function lerp(a, b, t) { return a + (b - a) * t; }
+
+    function ramp(stops, t) {
+      t = Math.max(0, Math.min(1, t));
+      const n = stops.length - 1;
+      const s = Math.min(Math.floor(t * n), n - 1);
+      const f = t * n - s;
+      const [r1, g1, b1] = stops[s];
+      const [r2, g2, b2] = stops[s + 1];
+      return `rgb(${Math.round(lerp(r1, r2, f))},${Math.round(lerp(g1, g2, f))},${Math.round(lerp(b1, b2, f))})`;
+    }
+
+    // low entropy (confident) -> green, mid -> yellow, high (ambiguous) -> red
+    const ENTROPY_STOPS = [[107, 207, 158], [166, 219, 120], [232, 197, 71], [224, 130, 80], [224, 92, 92]];
+    // density: dark -> green -> white
+    const DENSITY_STOPS = [[10, 22, 16], [30, 92, 62], [107, 207, 158], [200, 245, 220], [255, 255, 255]];
+    // posterior heat for a single cell
+    const POST_STOPS = [[6, 6, 6], [20, 60, 44], [60, 150, 105], [158, 236, 192], [255, 255, 255]];
+
+    function metricInfo() {
+      switch (state.colorBy) {
+        case 'count':   return { key: 'count',   label: 'Cells per well', stops: DENSITY_STOPS, invert: false, density: true };
+        case 'minH':    return { key: 'minH',    label: state.spatialOn ? 'Min spatial entropy (bits)' : 'Min total entropy (bits)', stops: ENTROPY_STOPS, invert: false, max: maxH };
+        case 'maxConf': return { key: 'maxConf', label: 'Max confidence', stops: DENSITY_STOPS, invert: false, max: 1 };
+        case 'counts':  return { key: 'counts',  label: 'Median UMI counts', stops: DENSITY_STOPS, invert: false, density: true };
+        default:        return { key: 'meanH',   label: state.spatialOn ? 'Mean spatial entropy (bits)' : 'Mean total entropy (bits)', stops: ENTROPY_STOPS, invert: false, max: maxH };
+      }
+    }
+
+    function metricRange(info) {
+      if (info.max !== undefined) return [0, info.max];
+      let hi = 0;
+      for (const s of wellStats) if (s && s[info.key] > hi) hi = s[info.key];
+      return [0, Math.max(hi, 1)];
+    }
+
+    function normalize(v, lo, hi, useLog) {
+      if (useLog) {
+        const a = Math.log1p(Math.max(0, lo));
+        const b = Math.log1p(Math.max(hi, lo + 1e-9));
+        return (Math.log1p(Math.max(0, v)) - a) / (b - a || 1);
+      }
+      return (v - lo) / (hi - lo || 1);
+    }
+
+    // ---------------------------------------------------------------- drawing
+    function cellRect(row, col, emph) {
+      const inset = emph ? 0.5 : 1;
+      const size = CELL - inset * 2;
+      return {
+        x: PAD + (col - 1) * (CELL + GAP) + inset,
+        y: PAD + (row - 1) * (CELL + GAP) + inset,
+        size,
+      };
+    }
+
+    function posToCell(x, y) {
+      const col = Math.floor((x - PAD) / (CELL + GAP)) + 1;
+      const row = Math.floor((y - PAD) / (CELL + GAP)) + 1;
+      if (row < 1 || row > GRID || col < 1 || col > GRID) return null;
+      const cx = PAD + (col - 1) * (CELL + GAP);
+      const cy = PAD + (row - 1) * (CELL + GAP);
+      if (x < cx || x > cx + CELL || y < cy || y > cy + CELL) return null;
+      return { row, col };
+    }
+
+    function strokeSelection(row, col, color, width) {
+      const { x, y, size } = cellRect(row, col, true);
+      ctx.strokeStyle = color;
+      ctx.lineWidth = width;
+      ctx.strokeRect(x - 1.5, y - 1.5, size + 3, size + 3);
+    }
+
+    function drawBarcodeWell(row, col, st) {
+      const { x, y, size } = cellRect(row, col, st !== 'normal');
+      if (st !== 'normal') {
+        ctx.fillStyle = 'rgba(107, 207, 158, 0.25)';
+        ctx.fillRect(x - 2, y - 2, size + 4, size + 4);
+      }
+      const grad = ctx.createLinearGradient(x, y, x + size, y + size);
+      if (st !== 'normal') {
+        grad.addColorStop(0, '#9eecc0'); grad.addColorStop(0.55, '#6bcf9e'); grad.addColorStop(1, '#2d6b47');
+      } else {
+        grad.addColorStop(0, '#5a5a5a'); grad.addColorStop(0.55, '#2e2e2e'); grad.addColorStop(1, '#111111');
+      }
+      ctx.fillStyle = grad;
+      ctx.fillRect(x, y, size, size);
+      ctx.strokeStyle = st !== 'normal' ? '#6bcf9e' : '#7a7a7a';
+      ctx.lineWidth = st === 'selected' ? 1.5 : 0.8;
+      ctx.strokeRect(x + 0.5, y + 0.5, size - 1, size - 1);
+    }
+
+    /** Rank-1 joint posterior for one cell, drawn as a full-grid heatmap. */
+    function drawPosteriorGrid(i) {
+      const ro = i * GRID, co = i * GRID;
+      for (let r = 1; r <= GRID; r++) {
+        const pr = rowPost[ro + r - 1] / 255;
+        for (let c = 1; c <= GRID; c++) {
+          const v = pr * (colPost[co + c - 1] / 255);
+          const { x, y, size } = cellRect(r, c, false);
+          ctx.fillStyle = ramp(POST_STOPS, Math.pow(v, 0.42));
+          ctx.fillRect(x, y, size, size);
+          // Sharply peaked posteriors are almost entirely black; outlines keep the grid readable.
+          ctx.strokeStyle = 'rgba(255,255,255,0.045)';
+          ctx.lineWidth = 0.5;
+          ctx.strokeRect(x + 0.5, y + 0.5, size - 1, size - 1);
+        }
+      }
+      strokeSelection(M.map_row[i], M.map_col[i], '#ffffff', 1.6);
+    }
+
+    function drawHeatGrid() {
+      const info = metricInfo();
+      const [lo, hi] = metricRange(info);
+      const useLog = state.logDensity && info.density;
+      for (let r = 1; r <= GRID; r++) {
+        for (let c = 1; c <= GRID; c++) {
+          const s = wellStats[(r - 1) * GRID + (c - 1)];
+          const { x, y, size } = cellRect(r, c, false);
+          if (!s) {
+            ctx.fillStyle = '#0c0c0c';
+            ctx.fillRect(x, y, size, size);
+            ctx.strokeStyle = '#161616';
+            ctx.lineWidth = 0.6;
+            ctx.strokeRect(x + 0.5, y + 0.5, size - 1, size - 1);
+            continue;
+          }
+          ctx.fillStyle = ramp(info.stops, normalize(s[info.key], lo, hi, useLog));
+          ctx.fillRect(x, y, size, size);
+        }
+      }
+    }
+
+    /** Deterministic jitter so a cell always lands in the same spot inside its well. */
+    function jitter(i, salt) {
+      const h = Math.sin((i + 1) * (salt === 0 ? 12.9898 : 78.233)) * 43758.5453;
+      return h - Math.floor(h);
+    }
+
+    function drawDotsGrid() {
+      ctx.fillStyle = '#080808';
+      ctx.fillRect(0, 0, SIZE, SIZE);
+      for (let r = 1; r <= GRID; r++) {
+        for (let c = 1; c <= GRID; c++) {
+          const { x, y, size } = cellRect(r, c, false);
+          ctx.strokeStyle = '#121212';
+          ctx.lineWidth = 0.5;
+          ctx.strokeRect(x + 0.5, y + 0.5, size - 1, size - 1);
+        }
+      }
+      const rad = Math.max(1.1, CELL * 0.16);
+      for (let i = 0; i < CD.n_cells; i++) {
+        if (!passing[i]) continue;
+        const { x, y, size } = cellRect(M.map_row[i], M.map_col[i], false);
+        const cx = x + rad + jitter(i, 0) * Math.max(0, size - rad * 2);
+        const cy = y + rad + jitter(i, 1) * Math.max(0, size - rad * 2);
+        ctx.fillStyle = ramp(ENTROPY_STOPS, M.total_entropy[i] / maxH);
+        ctx.globalAlpha = 0.92;
+        ctx.beginPath();
+        ctx.arc(cx, cy, rad, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    function draw() {
+      fitChip();
+      ctx.clearRect(0, 0, SIZE, SIZE);
+      ctx.fillStyle = '#060606';
+      ctx.fillRect(0, 0, SIZE, SIZE);
+
+      if (state.mode === 'barcodes' || !CD) {
+        for (let r = 1; r <= GRID; r++) {
+          for (let c = 1; c <= GRID; c++) {
+            let st = 'normal';
+            if (r === state.selRow && c === state.selCol) st = 'selected';
+            else if (r === state.hoverRow && c === state.hoverCol) st = 'hover';
+            drawBarcodeWell(r, c, st);
+          }
+        }
+        return;
+      }
+
+      if (state.selCell !== null) drawPosteriorGrid(state.selCell);
+      else if (state.overlay === 'dots') drawDotsGrid();
+      else drawHeatGrid();
+
+      if (state.hoverRow) strokeSelection(state.hoverRow, state.hoverCol, 'rgba(255,255,255,0.75)', 1);
+      strokeSelection(state.selRow, state.selCol, '#6bcf9e', 1.6);
+    }
+
+    // ---------------------------------------------------------------- histogram
+    const HIST_BINS = 64;
+    let histCounts = null;
+    let histMax = 1;
+
+    function buildHistogram() {
+      if (!CD) return;
+      histCounts = new Float64Array(HIST_BINS);
+      for (let i = 0; i < CD.n_cells; i++) {
+        const b = Math.min(HIST_BINS - 1, Math.floor((M.total_entropy[i] / maxH) * HIST_BINS));
+        histCounts[b]++;
+      }
+      histMax = Math.max(...histCounts);
+    }
+
+    function drawHistogram() {
+      const { w: W, h: H } = fitCanvas(histCanvas, hctx);
+      hctx.clearRect(0, 0, W, H);
+      hctx.fillStyle = '#080808';
+      hctx.fillRect(0, 0, W, H);
+      if (!histCounts) return;
+
+      const bw = W / HIST_BINS;
+      const scale = (v) => Math.sqrt(v / histMax); // sqrt keeps the long tail visible
+      for (let b = 0; b < HIST_BINS; b++) {
+        const bc = ((b + 0.5) / HIST_BINS) * maxH;
+        const inRange = bc >= state.hMin && bc <= state.hMax;
+        const h = scale(histCounts[b]) * (H - 16);
+        hctx.fillStyle = inRange ? ramp(ENTROPY_STOPS, bc / maxH) : '#1d1d1d';
+        hctx.fillRect(b * bw, H - 12 - h, Math.max(1, bw - 1), h);
+      }
+
+      hctx.strokeStyle = '#2a2a2a';
+      hctx.lineWidth = 1;
+      hctx.beginPath();
+      hctx.moveTo(0, H - 12);
+      hctx.lineTo(W, H - 12);
+      hctx.stroke();
+
+      hctx.fillStyle = '#666';
+      hctx.font = '11px "Courier New", monospace';
+      hctx.fillText('0', 2, H - 2);
+      hctx.fillText(maxH.toFixed(1) + ' bits', W - 62, H - 2);
+
+      for (const v of [state.hMin, state.hMax]) {
+        const x = (v / maxH) * W;
+        hctx.strokeStyle = 'rgba(255,255,255,0.55)';
+        hctx.beginPath();
+        hctx.moveTo(x, 0);
+        hctx.lineTo(x, H - 12);
+        hctx.stroke();
+      }
+    }
+
+    function drawSpark(cv, arr, offset, peakLabel) {
+      const c = cv.getContext('2d');
+      const { w: W, h: H } = fitCanvas(cv, c);
+      c.clearRect(0, 0, W, H);
+      c.fillStyle = '#080808';
+      c.fillRect(0, 0, W, H);
+      const bw = W / GRID;
+      for (let k = 0; k < GRID; k++) {
+        const v = arr[offset + k] / 255;
+        const h = v * (H - 6);
+        c.fillStyle = ramp(POST_STOPS, Math.pow(v, 0.5));
+        c.fillRect(k * bw, H - h, Math.max(1, bw - 1), h);
+      }
+      c.fillStyle = '#6bcf9e';
+      c.font = '10px "Courier New", monospace';
+      c.fillText(peakLabel, 4, 11);
+    }
+
+    // ---------------------------------------------------------------- sidebar
+    function wellBarcodes(row, col) {
+      return {
+        plate1: { row: lookup.row[1][row], col: lookup.col[1][col] },
+        plate2: { row: lookup.row[2][row], col: lookup.col[2][col] },
+      };
+    }
+
+    function barcodeCard(axis, bc) {
+      if (!bc) return `<div class="barcode-card"><div class="axis">${axis}</div><div class="name">—</div></div>`;
+      return `
+        <div class="barcode-card">
+          <div class="axis">${axis}</div>
+          <div class="name">${bc.name}</div>
+          <div class="meta">384-well: ${bc.well}</div>
+          <div class="seq" title="Click to expand">${bc.sequence}</div>
+        </div>`;
+    }
+
+    function renderPlateBlock(title, dotClass, rowBc, colBc) {
+      return `
+        <div class="plate-block">
+          <h3><span class="dot ${dotClass}"></span>${title}</h3>
+          ${barcodeCard('Row barcode', rowBc)}
+          ${barcodeCard('Column barcode', colBc)}
+        </div>`;
+    }
+
+    function renderWellCells(row, col) {
+      const block = document.getElementById('well-cells-block');
+      const list = document.getElementById('cell-list');
+      if (!CD || state.mode !== 'cells') { block.hidden = true; return; }
+      block.hidden = false;
+
+      const ids = (wellCells[(row - 1) * GRID + (col - 1)] || []).filter(i => passing[i]);
+      ids.sort((a, b) => M.total_entropy[a] - M.total_entropy[b]);
+      document.getElementById('well-count-pill').textContent = ids.length;
+
+      if (!ids.length) {
+        list.innerHTML = '<p class="hint">No cells assigned here under the current filters.</p>';
+        return;
+      }
+
+      list.innerHTML = ids.map(i => `
+        <div class="cell-row ${i === state.selCell ? 'active' : ''}" data-cell="${i}">
+          <div class="nm">${CD.obs_names[i]}</div>
+          <div class="hv" style="color:${ramp(ENTROPY_STOPS, M.total_entropy[i] / maxH)}">
+            ${M.total_entropy[i].toFixed(2)}b
+          </div>
+        </div>`).join('');
+
+      list.querySelectorAll('.cell-row').forEach(node => {
+        node.addEventListener('click', () => selectCell(Number(node.dataset.cell)));
+      });
+    }
+
+    function renderCellDetail() {
+      const box = document.getElementById('cell-detail');
+      if (state.selCell === null || !CD) { box.hidden = true; return; }
+      box.hidden = false;
+      const i = state.selCell;
+      document.getElementById('cell-detail-body').innerHTML = `
+        <div class="barcode-card" style="border-top:none;padding-top:0">
+          <div class="name">${CD.obs_names[i]}</div>
+          <div class="meta">MAP well R${M.map_row[i]} · C${M.map_col[i]}</div>
+        </div>
+        <div class="stats" style="margin-top:0.5rem">
+          <div class="stat"><div class="k">${state.spatialOn ? 'Spatial entropy' : 'Total entropy'}</div><div class="v" style="color:${ramp(ENTROPY_STOPS, M.total_entropy[i] / maxH)}">${M.total_entropy[i].toFixed(3)} b</div></div>
+          <div class="stat"><div class="k">Discrete H</div><div class="v">${M.discrete_entropy[i].toFixed(3)} b</div></div>
+          <div class="stat"><div class="k">Confidence</div><div class="v">${M.confidence[i].toFixed(4)}</div></div>
+          <div class="stat"><div class="k">Row entropy</div><div class="v">${M.row_entropy[i].toFixed(3)} b</div></div>
+          <div class="stat"><div class="k">Col entropy</div><div class="v">${M.col_entropy[i].toFixed(3)} b</div></div>
+          <div class="stat"><div class="k">UMI counts</div><div class="v">${CD.total_counts[i]}</div></div>
+        </div>`;
+      drawSpark(document.getElementById('spark-row'), rowPost, i * GRID, `row · H=${M.row_entropy[i].toFixed(2)}b`);
+      drawSpark(document.getElementById('spark-col'), colPost, i * GRID, `col · H=${M.col_entropy[i].toFixed(2)}b`);
+    }
+
+    function renderStats() {
+      const el = document.getElementById('stats');
+      if (!CD) { el.innerHTML = ''; return; }
+      let n = 0, sumH = 0, wells = 0;
+      const hs = [];
+      for (let i = 0; i < CD.n_cells; i++) if (passing[i]) { n++; sumH += M.total_entropy[i]; hs.push(M.total_entropy[i]); }
+      for (const s of wellStats) if (s) wells++;
+      hs.sort((a, b) => a - b);
+      const conf90 = (() => {
+        let k = 0;
+        for (let i = 0; i < CD.n_cells; i++) if (passing[i] && M.confidence[i] > 0.9) k++;
+        return n ? (k / n) * 100 : 0;
+      })();
+      const rows = [
+        ['Plates', state.plate1 && state.plate2 ? 'P1 + P2' : state.plate1 ? 'P1 only' : 'P2 only'],
+        ['Cells shown', `${n} / ${CD.n_cells}`],
+        ['Wells occupied', `${wells} / ${GRID * GRID}`],
+        ['Median entropy', n ? `${median(hs).toFixed(2)} b` : '—'],
+        ['Mean entropy', n ? `${(sumH / n).toFixed(2)} b` : '—'],
+        ['Entropy mode', state.spatialOn ? `spatial σ=${state.spatialSigma.toFixed(2)}` : 'discrete'],
+        ['Conf > 0.9', `${conf90.toFixed(1)}%`],
+        ['Cells / well', wells ? (n / wells).toFixed(2) : '—'],
+      ];
+      el.innerHTML = rows.map(([k, v]) => `<div class="stat"><div class="k">${k}</div><div class="v">${v}</div></div>`).join('');
+    }
+
+    function renderColorbar() {
+      const info = metricInfo();
+      const [lo, hi] = metricRange(info);
+      const stops = [];
+      for (let k = 0; k <= 10; k++) stops.push(`${ramp(info.stops, k / 10)} ${k * 10}%`);
+      document.getElementById('colorbar').style.background = `linear-gradient(90deg, ${stops.join(',')})`;
+      const fmt = (v) => (info.key === 'count' || info.key === 'counts' ? Math.round(v) : v.toFixed(2));
+      document.getElementById('cb-lo').textContent = `${info.label}: ${fmt(lo)}`;
+      document.getElementById('cb-hi').textContent = fmt(hi);
+    }
+
+    function showWell(row, col, full) {
+      state.selRow = row;
+      state.selCol = col;
+      const bc = wellBarcodes(row, col);
+      const s = CD ? wellStats[(row - 1) * GRID + (col - 1)] : null;
+
+      document.getElementById('coords').textContent = `R${row} · C${col}`;
+      document.getElementById('chip-readout').textContent =
+        state.mode === 'cells' && s
+          ? `R${row} C${col} · ${s.count} cell${s.count === 1 ? '' : 's'} · H̄ ${s.meanH.toFixed(2)}b`
+          : `R${row} · C${col}`;
+
+      if (full) {
+        document.getElementById('hint').hidden = true;
+        const details = document.getElementById('details');
+        details.hidden = false;
+        let plateHtml = '';
+        if (state.plate1) plateHtml += renderPlateBlock('Plate 1', 'p1', bc.plate1.row, bc.plate1.col);
+        if (state.plate2) plateHtml += renderPlateBlock('Plate 2', 'p2', bc.plate2.row, bc.plate2.col);
+        if (!plateHtml) plateHtml = '<p class="hint">Enable at least one plate to inspect barcodes.</p>';
+        details.innerHTML = plateHtml;
+        details.querySelectorAll('.seq').forEach(node => {
+          node.addEventListener('click', () => node.classList.toggle('expanded'));
+        });
+        renderWellCells(row, col);
+      }
+      draw();
+    }
+
+    function selectCell(i) {
+      state.selCell = i;
+      state.selRow = M.map_row[i];
+      state.selCol = M.map_col[i];
+      document.getElementById('chip-title').textContent = `Posterior · ${CD.obs_names[i]}`;
+      showWell(state.selRow, state.selCol, true);
+      renderCellDetail();
+    }
+
+    function clearCell() {
+      state.selCell = null;
+      document.getElementById('chip-title').textContent =
+        state.mode === 'cells' ? 'Localized cells' : 'Spatial hash chip';
+      renderCellDetail();
+      renderWellCells(state.selRow, state.selCol);
+      draw();
+    }
+
+    // ---------------------------------------------------------------- interaction
+    function canvasPos(e) {
+      const rect = canvas.getBoundingClientRect();
+      return {
+        x: (e.clientX - rect.left) * (SIZE / rect.width),
+        y: (e.clientY - rect.top) * (SIZE / rect.height),
+      };
+    }
+
+    canvas.addEventListener('mousemove', (e) => {
+      const p = canvasPos(e);
+      const hit = posToCell(p.x, p.y);
+      const nr = hit?.row ?? null;
+      const nc = hit?.col ?? null;
+      if (nr === state.hoverRow && nc === state.hoverCol) return;
+      state.hoverRow = nr;
+      state.hoverCol = nc;
+      if (hit) {
+        if (state.mode === 'barcodes') showWell(hit.row, hit.col, true);
+        else {
+          const s = wellStats[(hit.row - 1) * GRID + (hit.col - 1)];
+          document.getElementById('chip-readout').textContent = s
+            ? `R${hit.row} C${hit.col} · ${s.count} cell${s.count === 1 ? '' : 's'} · H̄ ${s.meanH.toFixed(2)}b`
+            : `R${hit.row} C${hit.col} · empty`;
+          draw();
+        }
+      } else draw();
+    });
+
+    canvas.addEventListener('mouseleave', () => {
+      state.hoverRow = null;
+      state.hoverCol = null;
+      draw();
+    });
+
+    canvas.addEventListener('click', (e) => {
+      const p = canvasPos(e);
+      const hit = posToCell(p.x, p.y);
+      if (!hit) return;
+      if (state.selCell !== null) clearCell();
+      showWell(hit.row, hit.col, true);
+    });
+
+    // mode / overlay toggles
+    document.getElementById('mode-seg').addEventListener('click', (e) => {
+      const btn = e.target.closest('button');
+      if (!btn) return;
+      if (!CD && btn.dataset.mode === 'cells') return;
+      state.mode = btn.dataset.mode;
+      document.querySelectorAll('#mode-seg button').forEach(b => b.classList.toggle('active', b === btn));
+      document.getElementById('ctl-cells').style.opacity = state.mode === 'cells' ? '1' : '0.35';
+      document.getElementById('ctl-cells').style.pointerEvents = state.mode === 'cells' ? 'auto' : 'none';
+      document.getElementById('chip-title').textContent =
+        state.mode === 'cells' ? 'Localized cells' : 'Spatial hash chip';
+      document.getElementById('subtitle').textContent = state.mode === 'cells'
+        ? 'Every cell placed at its MAP well; color and filter by posterior entropy'
+        : 'Hover a microwell to inspect spatial hash barcodes';
+      state.selCell = null;
+      renderCellDetail();
+      showWell(state.selRow, state.selCol, true);
+      renderColorbar();
+    });
+
+    document.getElementById('overlay-seg').addEventListener('click', (e) => {
+      const btn = e.target.closest('button');
+      if (!btn) return;
+      state.overlay = btn.dataset.overlay;
+      document.querySelectorAll('#overlay-seg button').forEach(b => b.classList.toggle('active', b === btn));
+      draw();
+    });
+
+    document.getElementById('color-by').addEventListener('change', (e) => {
+      state.colorBy = e.target.value;
+      renderColorbar();
+      draw();
+    });
+
+    document.getElementById('log-density').addEventListener('change', (e) => {
+      state.logDensity = e.target.checked;
+      draw();
+    });
+
+    // sliders (0..1000 -> physical units)
+    function bindSlider(id, labelId, toValue, fmt, onChange) {
+      const el = document.getElementById(id);
+      el.addEventListener('input', () => {
+        const v = toValue(Number(el.value) / 1000);
+        document.getElementById(labelId).textContent = fmt(v);
+        onChange(v);
+        applyFilters();
+        refreshAll();
+      });
+      return el;
+    }
+
+    const sHMin = bindSlider('h-min', 'v-hmin', t => t * maxH, v => v.toFixed(2), v => {
+      state.hMin = Math.min(v, state.hMax);
+    });
+    const sHMax = bindSlider('h-max', 'v-hmax', t => t * maxH, v => v.toFixed(2), v => {
+      state.hMax = Math.max(v, state.hMin);
+    });
+    bindSlider('c-min', 'v-cmin', t => t, v => v.toFixed(3), v => { state.cMin = v; });
+    bindSlider('u-min', 'v-umin', t => Math.round(t * maxUmi), v => String(v), v => { state.uMin = v; });
+
+    document.getElementById('reset-filters').addEventListener('click', () => {
+      state.hMin = 0; state.hMax = maxH; state.cMin = 0; state.uMin = 0;
+      sHMin.value = 0; sHMax.value = 1000;
+      document.getElementById('c-min').value = 0;
+      document.getElementById('u-min').value = 0;
+      document.getElementById('v-hmin').textContent = '0.00';
+      document.getElementById('v-hmax').textContent = maxH.toFixed(2);
+      document.getElementById('v-cmin').textContent = '0.000';
+      document.getElementById('v-umin').textContent = '0';
+      applyFilters();
+      refreshAll();
+    });
+
+    document.getElementById('clear-cell').addEventListener('click', clearCell);
+
+    // histogram brushing
+    let brushing = false;
+    let brushAnchor = 0;
+
+    function histValue(e) {
+      const rect = histCanvas.getBoundingClientRect();
+      const t = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+      return t * maxH;
+    }
+
+    histCanvas.addEventListener('mousedown', (e) => {
+      brushing = true;
+      brushAnchor = histValue(e);
+      state.hMin = brushAnchor;
+      state.hMax = brushAnchor;
+      syncSlidersFromState();
+    });
+
+    window.addEventListener('mousemove', (e) => {
+      if (!brushing) return;
+      const v = histValue(e);
+      state.hMin = Math.min(brushAnchor, v);
+      state.hMax = Math.max(brushAnchor, v);
+      syncSlidersFromState();
+    });
+
+    window.addEventListener('mouseup', () => {
+      if (!brushing) return;
+      brushing = false;
+      if (state.hMax - state.hMin < 1e-6) { state.hMin = 0; state.hMax = maxH; }
+      syncSlidersFromState();
+    });
+
+    function syncSlidersFromState() {
+      sHMin.value = Math.round((state.hMin / maxH) * 1000);
+      sHMax.value = Math.round((state.hMax / maxH) * 1000);
+      document.getElementById('v-hmin').textContent = state.hMin.toFixed(2);
+      document.getElementById('v-hmax').textContent = state.hMax.toFixed(2);
+      applyFilters();
+      refreshAll();
+    }
+
+    // search: barcode name or cell obs_name
+    function findBarcode(q) {
+      for (let r = 1; r <= GRID; r++) {
+        for (let c = 1; c <= GRID; c++) {
+          const bc = wellBarcodes(r, c);
+          const names = [];
+          if (state.plate1) names.push(bc.plate1.row?.name, bc.plate1.col?.name);
+          if (state.plate2) names.push(bc.plate2.row?.name, bc.plate2.col?.name);
+          if (names.map(n => (n || '').toLowerCase()).some(n => n.includes(q))) {
+            showWell(r, c, true);
+            return true;
+          }
+        }
+      }
+      return false;
+    }
+
+    function onPlateToggle(which) {
+      const p1 = document.getElementById('plate-1');
+      const p2 = document.getElementById('plate-2');
+      if (!p1.checked && !p2.checked) {
+        if (which === 1) p2.checked = true;
+        else p1.checked = true;
+      }
+      state.plate1 = p1.checked;
+      state.plate2 = p2.checked;
+      updatePlateHint();
+      if (hasPlateLl) {
+        recomputeMetrics();
+        buildHistogram();
+      }
+      applyFilters();
+      if (state.selCell !== null) {
+        state.selRow = M.map_row[state.selCell];
+        state.selCol = M.map_col[state.selCell];
+        renderCellDetail();
+      }
+      showWell(state.selRow, state.selCol, true);
+      refreshAll();
+    }
+
+    document.getElementById('plate-1').addEventListener('change', () => onPlateToggle(1));
+    document.getElementById('plate-2').addEventListener('change', () => onPlateToggle(2));
+
+    function onSpatialChange() {
+      syncSpatialUi();
+      if (!CD || !hasPlateLl) {
+        refreshAll();
+        return;
+      }
+      recomputeMetrics();
+      buildHistogram();
+      applyFilters();
+      if (state.selCell !== null) renderCellDetail();
+      showWell(state.selRow, state.selCol, true);
+      refreshAll();
+    }
+
+    document.getElementById('spatial-on').addEventListener('change', (e) => {
+      state.spatialOn = e.target.checked;
+      onSpatialChange();
+    });
+    let sigmaTimer = 0;
+    document.getElementById('spatial-sigma').addEventListener('input', (e) => {
+      state.spatialSigma = Number(e.target.value) / 10;
+      document.getElementById('v-sigma').textContent = state.spatialSigma.toFixed(2);
+      if (!state.spatialOn) return;
+      clearTimeout(sigmaTimer);
+      sigmaTimer = setTimeout(onSpatialChange, 120);
+    });
+
+    document.getElementById('search').addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter') return;
+      const q = e.target.value.trim().toLowerCase();
+      if (!q) return;
+      if (CD) {
+        const i = CD.obs_names.findIndex(n => n.toLowerCase().includes(q));
+        if (i >= 0) {
+          if (state.mode !== 'cells') document.querySelector('#mode-seg button[data-mode="cells"]').click();
+          selectCell(i);
+          return;
+        }
+      }
+      findBarcode(q);
+    });
+
+    let resizeRaf = 0;
+    window.addEventListener('resize', () => {
+      cancelAnimationFrame(resizeRaf);
+      resizeRaf = requestAnimationFrame(() => {
+        draw();
+        drawHistogram();
+        if (state.selCell !== null) renderCellDetail();
+      });
+    });
+
+    // ---------------------------------------------------------------- boot
+    function loadLayout() {
+      for (const b of window.LAYOUT_DATA.barcodes) {
+        const axis = b.axis === 'column' ? 'col' : b.axis;
+        lookup[axis][b.plate][b.index] = b;
+      }
+    }
+
+    function refreshAll() {
+      renderColorbar();
+      renderStats();
+      drawHistogram();
+      renderWellCells(state.selRow, state.selCol);
+      draw();
+    }
+
+    function loadDatasetScript(path) {
+      return new Promise((resolve, reject) => {
+        const prev = document.getElementById('cells-data-script');
+        if (prev) prev.remove();
+        window.CELL_DATA = null;
+        const s = document.createElement('script');
+        s.id = 'cells-data-script';
+        s.src = path + '?t=' + Date.now();
+        s.onload = () => resolve(window.CELL_DATA || null);
+        s.onerror = () => reject(new Error('Failed to load ' + path));
+        document.head.appendChild(s);
+      });
+    }
+
+    async function activateDataset(name, { silent } = { silent: false }) {
+      const spec = DATASETS[name];
+      if (!spec) throw new Error('Unknown dataset ' + name);
+      currentDataset = name;
+      document.getElementById('hint').textContent = 'Loading ' + name + '…';
+      CD = await loadDatasetScript(spec.path);
+      if (!CD) throw new Error('CELL_DATA missing after load');
+      initCellData();
+      buildHistogram();
+      document.getElementById('v-hmax').textContent = maxH.toFixed(2);
+      document.getElementById('h-min').value = '0';
+      document.getElementById('h-max').value = '1000';
+      document.getElementById('c-min').value = '0';
+      document.getElementById('u-min').value = '0';
+      state.hMin = 0;
+      state.hMax = maxH;
+      state.cMin = 0;
+      state.uMin = 0;
+      document.getElementById('v-hmin').textContent = '0.00';
+      document.getElementById('v-cmin').textContent = '0.00';
+      document.getElementById('v-umin').textContent = '0';
+      updatePlateHint();
+      document.getElementById('ctl-cells').style.opacity = '1';
+      document.getElementById('ctl-cells').style.pointerEvents = 'auto';
+      const chipReadout = document.getElementById('chip-readout');
+      if (chipReadout) chipReadout.textContent = name;
+      document.getElementById('subtitle').textContent =
+        `${name}: ${CD.n_cells.toLocaleString()} cells · ${spec.note} · Cells mode for entropy localization`;
+      document.getElementById('legend').innerHTML =
+        `Each position is defined by one <strong style="color:#aaa">row</strong> and one
+         <strong style="color:#aaa">column</strong> spatial hash oligo.
+         Plate 1 and Plate 2 each contribute independent row/column sets (192 oligos total).
+         <br><br><strong style="color:#aaa">${name}:</strong> ${CD.n_cells.toLocaleString()} cells localized by the
+         factorized row×column posterior. Discrete entropy = H(row) + H(col), max
+         ${maxH.toFixed(2)} bits. Enable <strong style="color:#aaa">Spatial entropy</strong> to down-weight
+         ambiguity among neighboring microwells (Gaussian σ), range-normalized to the same bit ceiling.
+         <br><span style="color:#666">${spec.note}</span>`;
+      document.getElementById('hint').textContent = silent ? '' : `${name} ready · ${CD.n_cells.toLocaleString()} cells`;
+      syncSpatialUi();
+      applyFilters();
+      refreshAll();
+    }
+
+    function init() {
+      try {
+        if (!window.LAYOUT_DATA) throw new Error('layout data missing');
+        loadLayout();
+        updatePlateHint();
+        showWell(1, 1, true);
+        draw();
+
+        const sel = document.getElementById('dataset-sel');
+        sel.addEventListener('change', async () => {
+          try {
+            await activateDataset(sel.value);
+          } catch (err) {
+            document.getElementById('hint').textContent = 'Dataset load failed: ' + err.message;
+          }
+        });
+
+        activateDataset(sel.value, { silent: true }).catch((err) => {
+          document.getElementById('ctl-cells').style.opacity = '0.35';
+          document.getElementById('ctl-cells').style.pointerEvents = 'none';
+          document.querySelector('#mode-seg button[data-mode="cells"]').title = 'cells.js not found';
+          document.getElementById('hist-hint').textContent =
+            'Run export_cells.py to generate cells.js and enable cell localization.';
+          document.getElementById('hint').textContent = 'Failed to load data: ' + err.message;
+        });
+      } catch (err) {
+        document.getElementById('hint').textContent = 'Failed to load data: ' + err.message;
+        draw();
+      }
+    }
+
+    init();
+  </script>
+</body>
+</html>
