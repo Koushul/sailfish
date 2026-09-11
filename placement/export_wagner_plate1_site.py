@@ -1,5 +1,14 @@
 #!/usr/bin/env python3
-"""Place WagnerCollab MC38 cells with Plate 1 only and write a lucid-crystal-style site."""
+"""Place MC38 cells and write a lucid-crystal-style site.
+
+E15S GEX barcodes come from Palak Cell Ranger
+(`/ix1/ylee/Palak/cellranger_apps/e15s/outs`), which is GEX-only.
+Spatial-hash ADT is taken from the original E15S Cell Ranger raw matrix
+(Antibody Capture), which covers every Palak barcode.
+
+E14S ADT comes from the original E14S filtered matrix. Localization uses
+both spatial-hash plates (the 48×48 chip needs Plate 1 rows + Plate 2 cols).
+"""
 from __future__ import annotations
 
 import argparse
@@ -11,10 +20,9 @@ import sys
 from pathlib import Path
 
 import anndata as ad
+import h5py
 import numpy as np
 import pandas as pd
-from scipy.io import mmread
-from scipy import sparse
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
@@ -31,10 +39,11 @@ from cell_placement import (  # noqa: E402
 )
 
 DEFAULT_H5AD = Path("/ix1/ylee/shared/external/data/WagnerCollab/mc38_velocity.h5ad")
-DEFAULT_CR = {
-    "E14S": Path("/ix1/ylee/shared/MC38_Hypoxia_001/E14S/filtered_feature_bc_matrix"),
-    "E15S": Path("/ix1/ylee/shared/MC38_Hypoxia_001/E15S/filtered_feature_bc_matrix"),
-}
+PALAK_E15S_BCS = Path(
+    "/ix1/ylee/Palak/cellranger_apps/e15s/outs/filtered_feature_bc_matrix/barcodes.tsv.gz"
+)
+E15S_ADT_H5 = Path("/ix1/ylee/shared/MC38_Hypoxia_001/E15S/raw_feature_bc_matrix.h5")
+E14S_ADT_H5 = Path("/ix1/ylee/shared/MC38_Hypoxia_001/E14S/filtered_feature_bc_matrix.h5")
 DEFAULT_FEATURE_REF = HERE.parent / "refs" / "new_feature_ref_quant.csv"
 DEFAULT_DATA_JS = HERE / "layouts" / "data.js"
 DEFAULT_TEMPLATE = HERE / "site_template" / "index.html"
@@ -53,56 +62,52 @@ def f32_list(x: np.ndarray, nd: int = 6) -> list[float]:
     return [round(float(v), nd) for v in np.asarray(x, dtype=np.float64)]
 
 
-def load_10x_adt(mtx_dir: Path) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    barcodes = np.array(
-        gzip.open(mtx_dir / "barcodes.tsv.gz", "rt").read().splitlines(), dtype=object
-    )
-    feats = []
-    with gzip.open(mtx_dir / "features.tsv.gz", "rt") as fh:
-        for line in fh:
-            fid, name, ftype = line.rstrip("\n").split("\t")
-            feats.append((fid, name, ftype))
-    mat = mmread(mtx_dir / "matrix.mtx.gz").tocsr()
-    adt_idx = [i for i, row in enumerate(feats) if row[2] == "Antibody Capture"]
-    if not adt_idx:
-        raise SystemExit(f"No Antibody Capture features in {mtx_dir}")
-    names = np.array([feats[i][1] for i in adt_idx], dtype=object)
-    adt = mat[adt_idx, :].T.tocsr()
-    return barcodes, names, adt
+def _as_str(arr: np.ndarray) -> np.ndarray:
+    out = []
+    for x in arr:
+        if isinstance(x, (bytes, np.bytes_)):
+            out.append(x.decode())
+        else:
+            out.append(str(x))
+    return np.array(out, dtype=object)
 
 
-def adt_for_velocity_cells(
-    adata: ad.AnnData, cr_dirs: dict[str, Path]
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    sample = adata.obs["sample"].astype(str).to_numpy()
-    obs_names = adata.obs_names.astype(str).to_numpy()
-    n = adata.n_obs
-    adt_names = None
-    blocks = {}
-    for lab, path in cr_dirs.items():
-        bc, names, mat = load_10x_adt(path)
-        if adt_names is None:
-            adt_names = names
-        elif list(names) != list(adt_names):
-            raise SystemExit(f"ADT feature names differ for {lab}")
-        lookup = {b: i for i, b in enumerate(bc)}
-        blocks[lab] = (lookup, mat)
-
-    n_adt = len(adt_names)
-    out = np.zeros((n, n_adt), dtype=np.float64)
-    found = np.zeros(n, dtype=bool)
-    for i, (name, lab) in enumerate(zip(obs_names, sample)):
-        lookup, mat = blocks[lab]
-        j = lookup.get(name)
-        if j is None:
-            j = lookup.get(name.split("-")[0] + "-1")
-        if j is None:
-            continue
-        row = mat[j]
-        out[i] = row.toarray().ravel() if sparse.issparse(row) else np.asarray(row).ravel()
-        found[i] = True
-    print(f"ADT matched {int(found.sum())} / {n} velocity cells")
-    return out, adt_names, found
+def adt_from_10x_h5(h5_path: Path, want: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Slice Antibody Capture columns for `want` barcodes from a 10x feature-barcode h5."""
+    with h5py.File(h5_path, "r") as f:
+        m = f["matrix"]
+        barcodes = _as_str(m["barcodes"][:])
+        lookup = {b: i for i, b in enumerate(barcodes)}
+        ftype = _as_str(m["features"]["feature_type"][:])
+        feat_names = _as_str(m["features"]["name"][:])
+        adt_rows = np.where(ftype == "Antibody Capture")[0]
+        if adt_rows.size == 0:
+            raise SystemExit(f"No Antibody Capture features in {h5_path}")
+        names = feat_names[adt_rows]
+        row_to_k = {int(r): k for k, r in enumerate(adt_rows)}
+        n_adt = int(adt_rows.size)
+        n = len(want)
+        out = np.zeros((n, n_adt), dtype=np.float64)
+        found = np.zeros(n, dtype=bool)
+        indptr = m["indptr"]
+        indices = m["indices"]
+        data = m["data"]
+        for i, bc in enumerate(want):
+            j = lookup.get(str(bc))
+            if j is None:
+                j = lookup.get(str(bc).split("-")[0] + "-1")
+            if j is None:
+                continue
+            s, e = int(indptr[j]), int(indptr[j + 1])
+            feat_idx = indices[s:e]
+            vals = data[s:e]
+            for fi, v in zip(feat_idx, vals):
+                k = row_to_k.get(int(fi))
+                if k is not None:
+                    out[i, k] = float(v)
+            found[i] = True
+        print(f"ADT from {h5_path.name}: matched {int(found.sum())} / {n}")
+        return out, names, found
 
 
 def plate_blocks_from_adt(adt: np.ndarray, adt_names: np.ndarray, data_js: str, feature_ref: str):
@@ -169,7 +174,7 @@ def patch_html(src: Path, n_cells: int) -> str:
           <option value="E15S">E15S</option>
         </select>""",
         """        <select id="dataset-sel">
-          <option value="MC38" selected>MC38 Plate 1</option>
+          <option value="MC38" selected>MC38 E14S+E15S</option>
         </select>""",
     )
     html = html.replace(
@@ -179,26 +184,15 @@ def patch_html(src: Path, n_cells: int) -> str:
       E15S: { path: 'datasets/E15S/cells.js', note: 'entropy assignment · layout UMI≥10, GEX≥500' },
     };""",
         """    const DATASETS = {
-      MC38: { path: 'datasets/MC38/cells.js', note: 'WagnerCollab mc38_velocity · Plate 1 only · layout UMI≥10' },
+      MC38: { path: 'datasets/MC38/cells.js', note: 'E15S GEX: Palak cellranger e15s/outs · ADT: original E15S raw · both plates · layout UMI≥10' },
     };""",
     )
     html = html.replace("let currentDataset = 'E28S';", "let currentDataset = 'MC38';")
     html = html.replace(
         "Hover a microwell to inspect barcodes; switch to Cells to position all cells and assess entropy",
-        "WagnerCollab MC38 (E14S+E15S) · Plate 1 localization · "
+        "MC38 · E15S from Palak cellranger + original ADT · both plates · "
         f"{n_cells:,} cells (layout UMI≥{MIN_LAYOUT_UMI}) · "
         "<a href='assignments.csv' style='color:#6bcf9e'>assignments.csv</a>",
-    )
-    html = html.replace(
-        '<label class="checkline"><input type="checkbox" id="plate-1" checked /><span class="dot p1"></span> Plate 1</label>\n'
-        '        <label class="checkline"><input type="checkbox" id="plate-2" checked /><span class="dot p2"></span> Plate 2</label>',
-        '<label class="checkline"><input type="checkbox" id="plate-1" checked disabled /><span class="dot p1"></span> Plate 1</label>\n'
-        '        <label class="checkline"><input type="checkbox" id="plate-2" disabled /><span class="dot p2"></span> Plate 2 (not used)</label>',
-    )
-    html = html.replace("plate2: true,", "plate2: false,")
-    html = html.replace(
-        "Plate 1 and Plate 2 each contribute independent row/column sets (192 oligos total).",
-        "Localization uses Plate 1 row/column spatial-hash oligos only (96 oligos).",
     )
     html = html.replace(
         '<meta property="og:url" content="https://lucid-crystal-kmqy.here.now/" />',
@@ -206,9 +200,42 @@ def patch_html(src: Path, n_cells: int) -> str:
     )
     html = html.replace(
         '<title>48×48 Microwell Layout &amp; Cell Localization</title>',
-        '<title>MC38 Plate 1 · 48×48 Microwell Localization</title>',
+        '<title>MC38 · 48×48 Microwell Localization</title>',
     )
     return html
+
+
+def compare_to_published(names: np.ndarray, sample: np.ndarray, placed: dict, h5ad: str) -> None:
+    adata = ad.read_h5ad(h5ad, backed="r")
+    obs = adata.obs.copy()
+    obs["barcode"] = adata.obs_names.astype(str)
+    obs["cx"] = obs["spatial_coordinate_x"].astype(int)
+    obs["cy"] = obs["spatial_coordinate_y"].astype(int)
+    adata.file.close()
+    df = pd.DataFrame(
+        {
+            "barcode": names,
+            "sample_id": sample,
+            "map_row": placed["map_row"].astype(int),
+            "map_col": placed["map_col"].astype(int),
+        }
+    )
+    m = df.merge(obs[["barcode", "sample", "cx", "cy"]], left_on=["barcode", "sample_id"], right_on=["barcode", "sample"])
+    if m.empty:
+        print("no overlap with published spatial coordinates")
+        return
+    exact = ((m.map_row == m.cx) & (m.map_col == m.cy)).mean()
+    row = (m.map_row == m.cx).mean()
+    col = (m.map_col == m.cy).mean()
+    l1 = np.abs(m.map_row - m.cx) + np.abs(m.map_col - m.cy)
+    shift = ((m.map_row == m.cx) & (m.map_col - 2 == m.cy)).mean()
+    print(
+        f"vs obsm spatial (n={len(m)} overlap): exact={exact*100:.2f}%  "
+        f"row==x {row*100:.1f}%  col==y {col*100:.1f}%  "
+        f"row==x & col-2==y {shift*100:.1f}%  median L1={np.median(l1):.1f}  "
+        f"Pearson row-x {np.corrcoef(m.map_row, m.cx)[0,1]:.3f}  "
+        f"col-y {np.corrcoef(m.map_col, m.cy)[0,1]:.3f}"
+    )
 
 
 def main() -> int:
@@ -221,23 +248,37 @@ def main() -> int:
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    print(f"reading obs from {args.h5ad}")
-    adata = ad.read_h5ad(args.h5ad, backed="r")
-    adt, adt_names, found = adt_for_velocity_cells(adata, DEFAULT_CR)
-    names = adata.obs_names.astype(str).to_numpy()
-    sample = adata.obs["sample"].astype(str).to_numpy()
-    adata.file.close()
+    e15_bcs = np.array(gzip.open(PALAK_E15S_BCS, "rt").read().splitlines(), dtype=object)
+    print(f"Palak e15s filtered GEX barcodes: {len(e15_bcs)}")
+    e15_adt, adt_names, e15_found = adt_from_10x_h5(E15S_ADT_H5, e15_bcs)
+    e15_bcs, e15_adt = e15_bcs[e15_found], e15_adt[e15_found]
+    e15_sample = np.array(["E15S"] * len(e15_bcs), dtype=object)
 
-    adt = adt[found]
-    names = names[found]
-    sample = sample[found]
+    print(f"reading E14S obs from {args.h5ad}")
+    adata = ad.read_h5ad(args.h5ad, backed="r")
+    is_e14 = adata.obs["sample"].astype(str).to_numpy() == "E14S"
+    e14_bcs = adata.obs_names.astype(str).to_numpy()[is_e14]
+    adata.file.close()
+    e14_adt, e14_names, e14_found = adt_from_10x_h5(E14S_ADT_H5, e14_bcs)
+    if list(e14_names) != list(adt_names):
+        raise SystemExit("E14S/E15S ADT feature names differ")
+    e14_bcs, e14_adt = e14_bcs[e14_found], e14_adt[e14_found]
+    e14_sample = np.array(["E14S"] * len(e14_bcs), dtype=object)
+
+    names = np.concatenate([e14_bcs, e15_bcs])
+    sample = np.concatenate([e14_sample, e15_sample])
+    adt = np.vstack([e14_adt, e15_adt])
+    print(f"combined {len(names)} cells with ADT")
+
     blocks = plate_blocks_from_adt(adt, adt_names, str(DEFAULT_DATA_JS), str(DEFAULT_FEATURE_REF))
-    layout_umi = (blocks["row_p1"] + blocks["col_p1"]).sum(axis=1)
+    layout_umi = (
+        blocks["row_p1"] + blocks["row_p2"] + blocks["col_p1"] + blocks["col_p2"]
+    ).sum(axis=1)
     keep = layout_umi >= args.min_layout_umi
     blocks = {k: v[keep] for k, v in blocks.items()}
     names = names[keep]
     sample = sample[keep]
-    print(f"kept {len(names)} cells with Plate-1 layout UMI≥{args.min_layout_umi}")
+    print(f"kept {len(names)} cells with layout UMI≥{args.min_layout_umi} (both plates)")
 
     placed = place_from_counts(
         blocks["row_p1"],
@@ -246,9 +287,11 @@ def main() -> int:
         blocks["col_p2"],
         beta=BETA,
         use_p1=True,
-        use_p2=False,
+        use_p2=True,
     )
-    placed["layout_umi"] = (blocks["row_p1"] + blocks["col_p1"]).sum(axis=1).astype(np.int64)
+    placed["layout_umi"] = (
+        blocks["row_p1"] + blocks["row_p2"] + blocks["col_p1"] + blocks["col_p2"]
+    ).sum(axis=1).astype(np.int64)
 
     ds = out_dir / "datasets" / "MC38"
     write_cells_js(ds / "cells.js", names, sample, placed, blocks)
@@ -276,12 +319,14 @@ def main() -> int:
     print(f"wrote {out_dir / 'index.html'}")
     te = placed["total_entropy"]
     print(
-        f"plates=1  discrete median={np.median(te):.3f}  "
+        f"plates=both  discrete median={np.median(te):.3f}  "
         f"spatial median={np.median(placed['spatial_entropy']):.3f}  "
         f"frac(conf>0.9)={(placed['confidence'] > 0.9).mean():.3f}  "
         f"frac(H<1)={(te < 1).mean():.3f}  "
+        f"unique wells={len(set(zip(placed['map_row'], placed['map_col'])))}  "
         f"per sample {pd.Series(sample).value_counts().to_dict()}"
     )
+    compare_to_published(names, sample, placed, args.h5ad)
     return 0
 
 

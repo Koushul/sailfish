@@ -58,9 +58,11 @@ python cell_placement.py from-h5ad \
   --out /tmp/assignments.csv
 ```
 
-WagnerCollab MC38 (`mc38_velocity.h5ad`) has GEX only. Join Plate 1/2 ADT from
-the E14S/E15S Cell Ranger matrices, localize with **Plate 1 only**, and write a
-lucid-crystal-style site:
+WagnerCollab MC38 (`mc38_velocity.h5ad`) has GEX only. Palak
+`cellranger_apps/e15s/outs` is also GEX-only (resequenced E15S). Spatial-hash
+ADT is taken from the original E15S Cell Ranger **raw** matrix (covers every
+Palak barcode) and original E14S filtered ADT. Localization uses **both**
+plates:
 
 ```bash
 python export_wagner_plate1_site.py \

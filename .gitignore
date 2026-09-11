@@ -6,3 +6,4 @@ __pycache__/
 *.mtx
 *.mtx.gz
 placement/sites/
+.herenow/
