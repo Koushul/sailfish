@@ -58,6 +58,16 @@ python cell_placement.py from-h5ad \
   --out /tmp/assignments.csv
 ```
 
+WagnerCollab MC38 (`mc38_velocity.h5ad`) has GEX only. Join Plate 1/2 ADT from
+the E14S/E15S Cell Ranger matrices, localize with **Plate 1 only**, and write a
+lucid-crystal-style site:
+
+```bash
+python export_wagner_plate1_site.py \
+  --h5ad /ix1/ylee/shared/external/data/WagnerCollab/mc38_velocity.h5ad \
+  --out sites/wagner_plate1
+```
+
 Rebuild `data.js` from the xlsx (should match the committed file):
 
 ```bash
