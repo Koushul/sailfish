@@ -68,7 +68,12 @@ def maybe_quant(cfg: dict, outdir: Path, skip_quant: bool) -> None:
         ensure_chemistry(name, spec["geometry"], spec.get("expected_ori", "fw"))
     for lib in (gex, cfg.get("adt")):
         if lib and lib.get("geometry"):
-            ensure_chemistry(lib["chemistry"], lib["geometry"], lib.get("expected_ori", "fw"))
+            ensure_chemistry(
+                lib["chemistry"],
+                lib["geometry"],
+                lib.get("expected_ori", "fw"),
+                lib.get("permit_list"),
+            )
     run_simpleaf_quant(
         reads1=gex["reads1"],
         reads2=gex["reads2"],
