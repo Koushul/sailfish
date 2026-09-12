@@ -63,7 +63,12 @@ def simpleaf_set_paths() -> None:
     subprocess.run([simpleaf_bin(), "set-paths"], check=True)
 
 
-def ensure_chemistry(name: str, geometry: str, expected_ori: str = "fw") -> None:
+def ensure_chemistry(
+    name: str,
+    geometry: str,
+    expected_ori: str = "fw",
+    local_url: str | None = None,
+) -> None:
     lookup = subprocess.run(
         [simpleaf_bin(), "chemistry", "lookup", "--name", name],
         check=False,
@@ -72,17 +77,17 @@ def ensure_chemistry(name: str, geometry: str, expected_ori: str = "fw") -> None
     )
     if lookup.returncode == 0 and name in (lookup.stdout + lookup.stderr):
         return
-    subprocess.run(
-        [
-            simpleaf_bin(),
-            "chemistry",
-            "add",
-            "--name",
-            name,
-            "--geometry",
-            geometry,
-            "--expected-ori",
-            expected_ori,
-        ],
-        check=True,
-    )
+    cmd = [
+        simpleaf_bin(),
+        "chemistry",
+        "add",
+        "--name",
+        name,
+        "--geometry",
+        geometry,
+        "--expected-ori",
+        expected_ori,
+    ]
+    if local_url:
+        cmd.extend(["--local-url", str(local_url)])
+    subprocess.run(cmd, check=True)
