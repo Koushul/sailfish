@@ -292,6 +292,47 @@ def place_from_counts(
     return out
 
 
+def place_from_axis_counts(
+    row_counts: np.ndarray,
+    col_counts: np.ndarray,
+    beta: float = BETA,
+    spatial_sigma: float | None = DEFAULT_SPATIAL_SIGMA,
+) -> dict[str, np.ndarray]:
+    """Two-oligo well: one row barcode family and one column barcode family.
+
+    Each well is the product of argmax(π_row) × argmax(π_col). Same soft one-hot
+    multinomial + empirical prior as the 4-oligo chip, but a single count vector
+    per axis (no plate combining).
+    """
+    row_counts = np.asarray(row_counts, dtype=np.float64)
+    col_counts = np.asarray(col_counts, dtype=np.float64)
+    if row_counts.shape[1] != GRID or col_counts.shape[1] != GRID:
+        raise ValueError(f"expected (n, {GRID}) count matrices")
+    row_ll = axis_loglik(row_counts, beta).astype(np.float64)
+    col_ll = axis_loglik(col_counts, beta).astype(np.float64)
+    rp = normalize_log_post(row_ll + axis_prior(row_counts))
+    cp = normalize_log_post(col_ll + axis_prior(col_counts))
+    row_h = entropy_bits(rp)
+    col_h = entropy_bits(cp)
+    out = {
+        "map_row": rp.argmax(axis=1) + 1,
+        "map_col": cp.argmax(axis=1) + 1,
+        "confidence": rp.max(axis=1) * cp.max(axis=1),
+        "row_entropy": row_h,
+        "col_entropy": col_h,
+        "total_entropy": row_h + col_h,
+        "row_post": rp,
+        "col_post": cp,
+        "row_ll": row_ll.astype(np.float32),
+        "col_ll": col_ll.astype(np.float32),
+        "layout_umi": (row_counts + col_counts).sum(axis=1).astype(np.int64),
+    }
+    if spatial_sigma is not None:
+        out["spatial_entropy"] = spatial_entropy_bits(rp, cp, sigma=spatial_sigma)
+        out["spatial_sigma"] = np.asarray(spatial_sigma, dtype=np.float64)
+    return out
+
+
 # --------------------------------------------------------------------------- I/O
 def _parse_js_payload(text: str, prefix: str) -> dict:
     text = text.strip()
