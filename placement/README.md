@@ -63,6 +63,13 @@ python cell_placement.py from-h5ad \
   --out /tmp/assignments.csv
 ```
 
+E14S/E15S 2-oligo site (`placement/sites/e14se15s_2oligo/`):
+
+```bash
+python placement/export_two_oligo_site.py \
+  --h5ad /ix1/ylee/kor11/MC38/E14SE15S/E14SE15S_gex_adt_placed.h5ad
+```
+
 Rebuild `data.js` from the xlsx (should match the committed file):
 
 ```bash
