@@ -3,10 +3,15 @@
 Python implementation of the localization used by
 [https://lucid-crystal-kmqy.here.now/](https://lucid-crystal-kmqy.here.now/).
 
-Each cell is placed on the chip by treating **row** and **column** independently.
-Each axis has two plates of 48 spatial-hash oligos. Counts become a soft one-hot
-multinomial log-likelihood (`β = 3`), plates are combined with averaged empirical
-log-priors, softmax → posterior, then:
+Each well is placed by treating **row** and **column** independently.
+
+**4-oligo chip** (lucid-crystal): each axis has two plates of 48 oligos.
+Counts become a soft one-hot multinomial log-likelihood (`β = 3`), plates are
+combined with averaged empirical log-priors, softmax → posterior, then:
+
+**2-oligo chip** (E14S/E15S `layout.csv`): one Plate-1 row oligo and one Plate-2
+column oligo per well. Same likelihood per axis; no plate combining.
+`place_from_axis_counts`.
 
 | quantity | formula |
 |---|---|

@@ -1,0 +1,28 @@
+{
+  "sample": "E14S",
+  "mode": "quant",
+  "output": "/ix1/ylee/kor11/MC38/E14SE15S/E14S",
+  "alevin_fry_home": "/ix1/ylee/kor11/MC38/E14SE15S/af_home",
+  "threads": 6,
+  "min_gex_umi": 500,
+  "tools": {
+    "conda": "/ix1/ylee/kor11/tools/af_tutorial/conda_env"
+  },
+  "gex": {
+    "reads1": ["/ix1/ylee/shared/E14S/E14S_GEX_S1_R1_001.fastq.gz"],
+    "reads2": ["/ix1/ylee/shared/E14S/E14S_GEX_S1_R2_001.fastq.gz"],
+    "index": "/ix1/ylee/Palak/MC38/index/grcm39_splici/index",
+    "chemistry": "10xv4-3p",
+    "threads": 6
+  },
+  "adt": {
+    "reads1": ["/ix1/ylee/shared/E14S/E14S_ADT_S2_R1_001.fastq.gz"],
+    "reads2": ["/ix1/ylee/shared/E14S/E14S_ADT_S2_R2_001.fastq.gz"],
+    "index": "/ix1/ylee/kor11/MC38/E14SE15S/index/adt_feature_index/index",
+    "chemistry": "e14s-adt-10xv4",
+    "geometry": "1{b[16]u[12]x:}2{r[15]x:}",
+    "feature_ref": "/ix1/ylee/kor11/MC38/E14SE15S/refs/new_feature_ref_quant.csv",
+    "permit_list": "/ix1/ylee/kor11/MC38/E14SE15S/refs/3M-3pgex-may-2023_TRU.txt",
+    "threads": 4
+  }
+}
