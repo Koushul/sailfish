@@ -63,7 +63,8 @@ python cell_placement.py from-h5ad \
   --out /tmp/assignments.csv
 ```
 
-E14S/E15S 2-oligo site (`placement/sites/e14se15s_2oligo/`):
+E14S/E15S 2-oligo site (`placement/sites/e14se15s_2oligo/`), live at
+[https://bold-opera-m9ks.here.now/](https://bold-opera-m9ks.here.now/):
 
 ```bash
 python placement/export_two_oligo_site.py \
