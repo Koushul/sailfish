@@ -65,3 +65,38 @@ python cell_placement.py layout-from-xlsx \
   --xlsx layouts/chip_layout.xlsx \
   --out /tmp/data.js
 ```
+
+## 2-barcode chip (`layout_2d.csv`)
+
+When each well is one **row** oligo and one **column** oligo (no plate combining), use:
+
+| file | role |
+|---|---|
+| `layouts/layout_2d.csv` | Chip map: Plate 1 `ROW 1–48` × Plate 2 `COLUMN 1–48` (other oligos in the CSV are unused) |
+| `cellplacement_2barcodes.py` | Placement: `from-h5ad`, `from-counts`, `selftest` |
+| `build_2barcode_site.py` | Writes a here.now-ready folder (`index.html`, `data.js`, `cells.js`, `assignments.csv`) |
+| `run_2barcode_site.sh` | Wrapper around `build_2barcode_site.py` |
+| `site_template_2barcodes/index.html` | Viewer template (dataset name injected at build time) |
+
+Required inputs for the site pipeline: AnnData with `obsm['ADT']`, the layout CSV, and an ADT feature-ref CSV (`name`, `sequence`). Optional `obs['sample']` (or `sample_id` / `batch`) becomes sample checkboxes.
+
+```bash
+cd placement
+python cellplacement_2barcodes.py selftest
+
+python cellplacement_2barcodes.py from-h5ad \
+  --h5ad /path/to/gex_adt.h5ad \
+  --layout layouts/layout_2d.csv \
+  --feature-ref ../refs/new_feature_ref_quant.csv \
+  --min-layout-umi 10 \
+  --out /tmp/assignments.csv
+
+python build_2barcode_site.py \
+  --h5ad /path/to/gex_adt.h5ad \
+  --layout layouts/layout_2d.csv \
+  --feature-ref ../refs/new_feature_ref_quant.csv \
+  --dataset MyExp \
+  --out /tmp/myexp_site \
+  --min-layout-umi 10
+# optional: --publish   (needs here.now publish.sh / $HERENOW_PUBLISH)
+```
