@@ -24,6 +24,9 @@ Pipeline
 6. v_g = u - κ s  ∝ ds/dt. v_reox = weighted mean of -z(v) on those genes.
    The scalar v_reox is then residualized on S/G2M fit in E14 only, so
    cycling is not called reversion. High v_reox = unspliced already down.
+   The same |v| gate is applied to E14: v_reox ≤ −v_cut is inducing
+   (toward hypoxia), the false-positive control. v_cut is the E14 95th
+   percentile of |v_reox|, so both tails share one magnitude.
 7. Memory: Muc1 if detected, else Sod2, z vs E14. High θ + high memory
    = memory, not full reversion.
 
@@ -137,20 +140,49 @@ def z_vs_ref(x: np.ndarray, ref_mask: np.ndarray) -> np.ndarray:
 
 
 def classify(sample: np.ndarray, theta: np.ndarray, v_reox: np.ndarray, memory_z: np.ndarray, v_cut: float, t_low: float, t_high: float, mem_cut: float) -> np.ndarray:
+    """Velocity first (both directions), then θ states. E14 is not forced steady."""
     n = sample.size
     out = np.array(["unassigned"] * n, dtype=object)
     e14 = sample == NORMOXIA
     e15 = sample == HYPOXIA
-    out[e14] = "never_hypoxic"
-    rev = e15 & (v_reox >= v_cut)
-    out[rev] = "reverting"
-    mem = e15 & ~rev & (theta >= t_high) & (memory_z >= mem_cut)
+    toward_normoxia = v_reox >= v_cut
+    toward_hypoxia = v_reox <= -v_cut
+    out[toward_normoxia] = "reverting"
+    out[toward_hypoxia] = "inducing"
+    moving = toward_normoxia | toward_hypoxia
+    out[e14 & ~moving] = "never_hypoxic"
+    rest = e15 & ~moving
+    mem = rest & (theta >= t_high) & (memory_z >= mem_cut)
     out[mem] = "memory"
-    rest = e15 & ~rev & ~mem
+    rest = rest & ~mem
     out[rest & (theta >= t_high)] = "reverted"
     out[rest & (theta <= t_low)] = "persistent"
     out[rest & (theta > t_low) & (theta < t_high)] = "partial"
     return out
+
+
+def direction_control(sample: np.ndarray, v_reox: np.ndarray, v_cut: float) -> pd.DataFrame:
+    """Same |v| gate on E14 (null) vs E15. E14 inducing is the false-positive control."""
+    rows = []
+    for name, mask in (("E14S", sample == NORMOXIA), ("E15S", sample == HYPOXIA)):
+        n = int(mask.sum())
+        n_rev = int((mask & (v_reox >= v_cut)).sum())
+        n_ind = int((mask & (v_reox <= -v_cut)).sum())
+        rows.append(
+            {
+                "sample": name,
+                "n": n,
+                "v_cut": v_cut,
+                "n_reverting": n_rev,
+                "n_inducing": n_ind,
+                "frac_reverting": n_rev / n if n else np.nan,
+                "frac_inducing": n_ind / n if n else np.nan,
+                "median_v_reox": float(np.median(v_reox[mask])),
+                "q05_v_reox": float(np.quantile(v_reox[mask], 0.05)),
+                "q95_v_reox": float(np.quantile(v_reox[mask], 0.95)),
+            }
+        )
+    return pd.DataFrame(rows)
 
 
 def run_kinetics(
@@ -164,7 +196,7 @@ def run_kinetics(
     t_low: float = 0.30,
     t_high: float = 0.70,
     mem_cut: float = 1.0,
-) -> tuple[pd.DataFrame, pd.DataFrame]:
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     if "cell_group" not in adata.obs:
         raise SystemExit("obs['cell_group'] missing; run annotate_cell_groups.py first")
     table = load_reversion_table(genes_path)
@@ -313,8 +345,9 @@ def run_kinetics(
         else np.zeros(e14.size)
     )
 
-    v_cut = float(np.quantile(v_reox[e14], 0.95))
+    v_cut = float(np.quantile(np.abs(v_reox[e14]), 0.95))
     state = classify(sample, theta, v_reox, mem_z, v_cut, t_low, t_high, mem_cut)
+    ctrl = direction_control(sample, v_reox, v_cut)
 
     cells = pd.DataFrame(
         {
@@ -325,6 +358,7 @@ def run_kinetics(
             "hif_score": h,
             "theta_normoxic": theta,
             "v_reox": v_reox,
+            "v_hypoxia": -v_reox,
             "memory_z": mem_z,
             "hypoxia_kinetics_state": state,
         },
@@ -340,16 +374,18 @@ def run_kinetics(
     print("HIF-down used for θ:", ", ".join(hif_genes))
     print("velocity genes:", ", ".join(kappa.keys()))
     print("memory genes:", ", ".join(mem_genes))
-    print(f"θ anchors E14 median={h14:.3f} E15 persistent={h_hyp:.3f}  v_cut(E14 95%)={v_cut:.3f}")
+    print(f"θ anchors E14 median={h14:.3f} E15 persistent={h_hyp:.3f}  |v| cut (E14 95%)={v_cut:.3f}")
     print(cells.groupby(["sample", "hypoxia_kinetics_state"]).size().unstack(fill_value=0))
-    print(cells.groupby("hypoxia_kinetics_state")[["theta_normoxic", "v_reox", "memory_z", "cycle_s"]].median())
-    return cells, qc
+    print(cells.groupby("hypoxia_kinetics_state")[["theta_normoxic", "v_reox", "v_hypoxia", "memory_z", "cycle_s"]].median())
+    print("direction control (same |v| gate; E14 inducing = false-positive toward hypoxia):")
+    print(ctrl.to_string(index=False))
+    return cells, qc, ctrl
 
 
 def attach_to_full(adata, cells: pd.DataFrame) -> None:
     n = adata.n_obs
     idx = pd.Index(adata.obs_names)
-    for col in ["cycle_s", "cycle_g2m", "hif_score", "theta_normoxic", "v_reox", "memory_z"]:
+    for col in ["cycle_s", "cycle_g2m", "hif_score", "theta_normoxic", "v_reox", "v_hypoxia", "memory_z"]:
         v = np.full(n, np.nan, dtype=np.float64)
         loc = idx.get_indexer(cells.index)
         v[loc] = cells[col].to_numpy(dtype=np.float64)
@@ -367,17 +403,19 @@ def main() -> int:
     ap.add_argument("--genes", default=str(DEFAULT_GENES))
     ap.add_argument("--out-cells", default=str(HERE / "hypoxia_kinetics.csv"))
     ap.add_argument("--out-qc", default=str(HERE / "hypoxia_kinetics_gene_qc.csv"))
+    ap.add_argument("--out-control", default=str(HERE / "hypoxia_kinetics_control.csv"))
     ap.add_argument("--write-h5ad", action="store_true")
     args = ap.parse_args()
 
     import anndata as ad
 
     adata = ad.read_h5ad(args.h5ad)
-    cells, qc = run_kinetics(adata, Path(args.genes))
+    cells, qc, ctrl = run_kinetics(adata, Path(args.genes))
     Path(args.out_cells).parent.mkdir(parents=True, exist_ok=True)
     cells.to_csv(args.out_cells)
     qc.to_csv(args.out_qc, index=False)
-    print(f"wrote {args.out_cells} and {args.out_qc}")
+    ctrl.to_csv(args.out_control, index=False)
+    print(f"wrote {args.out_cells}, {args.out_qc}, {args.out_control}")
     if args.write_h5ad:
         attach_to_full(adata, cells)
         # cycle scores for non-tumor: fill from a cheap pass on all cells

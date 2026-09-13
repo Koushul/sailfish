@@ -76,11 +76,11 @@ Tumor only (`cell_group == Tumor`), spliced/unspliced 1-D model. E14S is the nev
 | QC | Tumor spliced UMI ≥ 5000 (E14 libraries are ~20× smaller than E15) |
 | θ | d-weighted HIF-down genes (log1p size-normalized spliced). Cycle is **not** subtracted from these genes (glycolysis collinear with growth). |
 | κ | `mean(u)/mean(s)` on E14 ∪ most-hypoxic E15 (zeros make median u/s = 0) |
-| v_reox | −(u − κ s), then residualized on S/G2M fit in **E14 only** |
+| v_reox | −(u − κ s), then residualized on S/G2M fit in **E14 only**. Same |v| gate on E14: `inducing` = toward hypoxia (control). |
 | memory | Muc1 is undetectable; Sod2 z vs E14 |
-| states | E14 → `never_hypoxic`. E15: `reverting` if v_reox > E14 95%; else `memory` / `reverted` / `persistent` / `partial` by θ. Low-UMI tumor → `tumor_low_umi`. |
+| states | Velocity first (`reverting` / `inducing`). Else E14 → `never_hypoxic`. E15: `memory` / `reverted` / `persistent` / `partial`. Low-UMI tumor → `tumor_low_umi`. |
 
-Without GFP, E15 + high θ is **reverted or never-exposed**; E14 is the only clean never-hypoxic class.
+Control table: `hypoxia_kinetics_control.csv`. Without GFP, E15 + high θ is **reverted or never-exposed**; E14 is the only clean never-hypoxic class. E14 `inducing` is the noise floor for “moving toward hypoxia.”
 
 ## Run
 
