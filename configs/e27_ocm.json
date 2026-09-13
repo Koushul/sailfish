@@ -1,0 +1,25 @@
+{
+  "sample": "E27",
+  "mode": "ocm",
+  "output": "/ix1/ylee/kor11/A223/E27",
+  "alevin_fry_home": "/ix1/ylee/kor11/A223/af_home",
+  "threads": 16,
+  "min_gex_umi": 500,
+  "tools": {
+    "conda": "/ix1/ylee/kor11/tools/af_tutorial/conda_env"
+  },
+  "gex": {
+    "reads1": ["/ix1/ylee/shared/ResequencedE15S_E27_E28S/Y.Lee_10x_07_13_2026_fastq/E27_GEX_S1_R1_001.fastq.gz"],
+    "reads2": ["/ix1/ylee/shared/ResequencedE15S_E27_E28S/Y.Lee_10x_07_13_2026_fastq/E27_GEX_S1_R2_001.fastq.gz"],
+    "index": "/ix1/ylee/Palak/MC38/index/grcm39_splici/index",
+    "chemistry": "10xv4-3p"
+  },
+  "ocm": {
+    "samples": {
+      "OB1": "hypoxia_plus",
+      "OB2": "lactate_plus",
+      "OB3": "DN",
+      "OB4": "DP"
+    }
+  }
+}
