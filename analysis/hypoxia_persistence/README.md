@@ -63,6 +63,25 @@ Ranked list (mouse symbols for MC38): `reversion_key_genes.tsv`.
 
 Reversion is mostly **HIF-1α protein destroyed by PHD/VHL within minutes of O2**, then HIF target mRNAs fall (hours; Lai peak ~8–12 h). A ROS/NRF2 pulse can **raise** Hmox1/Nqo1. Godet **Muc1** staying high is memory, not reversion.
 
+## Tumor kinetics (v2)
+
+```bash
+python analysis/hypoxia_persistence/kinetics.py --write-h5ad
+```
+
+Tumor only (`cell_group == Tumor`), spliced/unspliced 1-D model. E14S is the never-hypoxic anchor. Outputs `hypoxia_kinetics.csv`, `hypoxia_kinetics_gene_qc.csv`, and obs columns on the placed h5ad.
+
+| step | what |
+|---|---|
+| QC | Tumor spliced UMI ≥ 5000 (E14 libraries are ~20× smaller than E15) |
+| θ | d-weighted HIF-down genes (log1p size-normalized spliced). Cycle is **not** subtracted from these genes (glycolysis collinear with growth). |
+| κ | `mean(u)/mean(s)` on E14 ∪ most-hypoxic E15 (zeros make median u/s = 0) |
+| v_reox | −(u − κ s), then residualized on S/G2M fit in **E14 only** |
+| memory | Muc1 is undetectable; Sod2 z vs E14 |
+| states | E14 → `never_hypoxic`. E15: `reverting` if v_reox > E14 95%; else `memory` / `reverted` / `persistent` / `partial` by θ. Low-UMI tumor → `tumor_low_umi`. |
+
+Without GFP, E15 + high θ is **reverted or never-exposed**; E14 is the only clean never-hypoxic class.
+
 ## Run
 
 ```bash
