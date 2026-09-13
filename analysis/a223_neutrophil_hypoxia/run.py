@@ -18,6 +18,7 @@ from sklearn.metrics import roc_auc_score
 HERE = Path(__file__).resolve().parent
 E27 = Path("/ix1/ylee/kor11/A223/E27/ocm/E27_gex_adt_ocm.h5ad")
 E29 = Path("/ix1/ylee/kor11/A223/E29/ocm/E29_gex_adt_ocm.h5ad")
+E14E15 = Path("/ix1/ylee/kor11/MC38/E14SE15S/E14SE15S_gex_adt_placed.h5ad")
 PALAK = Path("/ix1/ylee/Palak/A223/E27_E29_cell_type_metadata.csv")
 GENE_MAP = Path("/ix1/ylee/Palak/MC38/index/grcm39_splici/index/gene_id_to_name.tsv")
 OUT = Path("/ix1/ylee/kor11/A223/neutrophil_hypoxia")
@@ -162,8 +163,8 @@ def annotate(adata: ad.AnnData) -> pd.DataFrame:
     key = scores["lane"] + "_" + scores["barcode16"]
     scores["palak_cell_type"] = key.map(palak_idx["cell_type"])
     scores["palak_broad"] = key.map(palak_idx["cell_type_broad"].astype(str).str.strip())
-    scores["palak_neutrophil"] = key.map(palak_idx["palak_neutrophil"]).fillna(False).astype(bool)
-    scores["palak_tumor"] = key.map(palak_idx["palak_tumor"]).fillna(False).astype(bool)
+    scores["palak_neutrophil"] = key.map(palak_idx["palak_neutrophil"]).eq(True)
+    scores["palak_tumor"] = key.map(palak_idx["palak_tumor"]).eq(True)
     scores["palak_matched"] = scores["palak_broad"].notna()
     scores["cell_group"] = scores["marker_group"]
     scores.loc[scores["palak_neutrophil"], "cell_group"] = "neutrophil"
@@ -171,39 +172,67 @@ def annotate(adata: ad.AnnData) -> pd.DataFrame:
     return scores
 
 
-def score_hif(adata: ad.AnnData, scores: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
+def e14_tumor_calibration(mapping: dict[str, str], hif_genes: list[str], weights: np.ndarray) -> dict:
+    ref = ad.read_h5ad(E14E15)
+    set_symbols(ref, mapping)
+    lib = np.asarray(ref.layers["spliced"].sum(axis=1), dtype=np.float64).ravel()
+    tumor = (ref.obs["cell_group"].astype(str).to_numpy() == "Tumor") & (lib >= TUMOR_MIN_UMI)
+    sample = ref.obs["sample"].astype(str).to_numpy()
+    e14 = tumor & (sample == "E14S")
+    e15 = tumor & (sample == "E15S")
+    neu = (ref.obs["cell_group"].astype(str).to_numpy() == "neutrophil") & (lib >= NEU_MIN_UMI)
+    var_pos = {str(g): i for i, g in enumerate(ref.var_names.astype(str))}
+    missing = [g for g in hif_genes if g not in var_pos]
+    if missing:
+        raise SystemExit(f"E14/E15 missing HIF genes: {missing}")
+    cols = [var_pos[g] for g in hif_genes]
+    spl = size_normalize(csr_cols(ref.layers["spliced"], cols), lib)
+    log_s = np.log1p(spl)
+    mu = log_s[e14].mean(axis=0)
+    sd = log_s[e14].std(axis=0)
+    sd = np.where(sd < 1e-12, 1.0, sd)
+    h = ((log_s - mu) / sd) @ weights
+    h_lo = float(np.median(h[e14]))
+    h15q = float(np.quantile(h[e15], 0.75))
+    hi = e15 & (h >= h15q)
+    h_hi = float(np.median(h[hi])) if hi.any() else float(np.median(h[e15]))
+    theta = logistic_theta(h, h_lo, h_hi)
+    e15_state = ref.obs["hypoxia_kinetics_state"].astype(str).to_numpy()
+    cal = {
+        "mu": mu,
+        "sd": sd,
+        "h_lo": h_lo,
+        "h_hi": h_hi,
+        "n_e14_tumor": int(e14.sum()),
+        "n_e15_tumor": int(e15.sum()),
+        "e15_tumor_theta": {
+            "persistent": float(np.median(theta[e15 & (e15_state == "persistent")])) if np.any(e15 & (e15_state == "persistent")) else None,
+            "reverted": float(np.median(theta[e15 & (e15_state == "reverted")])) if np.any(e15 & (e15_state == "reverted")) else None,
+        },
+        "e15_neu_theta_median": float(np.median(theta[neu & (sample == "E15S")])) if np.any(neu & (sample == "E15S")) else None,
+        "e14_neu_theta_median": float(np.median(theta[neu & (sample == "E14S")])) if np.any(neu & (sample == "E14S")) else None,
+        "e15_neu_persistent_frac": float(np.mean(theta[neu & (sample == "E15S")] <= T_LOW)) if np.any(neu & (sample == "E15S")) else None,
+        "e15_neu_reverted_frac": float(np.mean(theta[neu & (sample == "E15S")] >= T_HIGH)) if np.any(neu & (sample == "E15S")) else None,
+    }
+    del ref
+    return cal
+
+
+def score_hif(adata: ad.AnnData, scores: pd.DataFrame, mapping: dict[str, str]) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
     qc = pd.read_csv(THETA_QC)
     use = qc["use_theta"].astype(str).str.lower().isin(["true", "1"])
     hif_genes = [g for g in qc.loc[use, "gene"].astype(str) if g in set(adata.var_names.astype(str))]
     w = qc.set_index("gene").loc[hif_genes, "cohens_d_e15_vs_e14"].clip(lower=0).to_numpy(dtype=np.float64)
     w = w / w.sum()
+    cal = e14_tumor_calibration(mapping, hif_genes, w)
     var_pos = {str(g): i for i, g in enumerate(adata.var_names.astype(str))}
     cols = [var_pos[g] for g in hif_genes]
     lib_s = scores["spliced_umi"].to_numpy()
     spl = size_normalize(csr_cols(adata.layers["spliced"], cols), lib_s)
     log_s = np.log1p(spl)
-
-    tumor_ref = (scores["cell_group"].eq("Tumor") & (lib_s >= TUMOR_MIN_UMI) & scores["sample_id"].eq("DN")).to_numpy()
-    if int(tumor_ref.sum()) < 30:
-        tumor_ref = (
-            scores["cell_group"].eq("Tumor")
-            & (lib_s >= TUMOR_MIN_UMI)
-            & scores["sample_id"].isin(["DN", "lactate_plus"])
-        ).to_numpy()
-    tumor_hyp = (scores["cell_group"].eq("Tumor") & (lib_s >= TUMOR_MIN_UMI) & scores["sample_id"].eq("hypoxia_plus")).to_numpy()
-    if tumor_ref.sum() < 15 or tumor_hyp.sum() < 15:
-        raise SystemExit(f"tumor anchors too small: DN-like={tumor_ref.sum()} hypoxia+={tumor_hyp.sum()}")
-
-    mu = log_s[tumor_ref].mean(axis=0)
-    sd = log_s[tumor_ref].std(axis=0)
-    sd = np.where(sd < 1e-12, 1.0, sd)
-    z = (log_s - mu) / sd
+    z = (log_s - cal["mu"]) / cal["sd"]
     h = z @ w
-    h_lo = float(np.median(h[tumor_ref]))
-    h15q = float(np.quantile(h[tumor_hyp], 0.75))
-    hi_mask = tumor_hyp & (h >= h15q)
-    h_hi = float(np.median(h[hi_mask])) if hi_mask.any() else float(np.median(h[tumor_hyp]))
-    theta = logistic_theta(h, h_lo, h_hi)
+    theta = logistic_theta(h, cal["h_lo"], cal["h_hi"])
     state = theta_state(theta)
 
     out = scores.copy()
@@ -212,29 +241,37 @@ def score_hif(adata: ad.AnnData, scores: pd.DataFrame) -> tuple[pd.DataFrame, pd
     out["hif_state"] = state
     out.loc[lib_s < NEU_MIN_UMI, "hif_state"] = "low_umi"
 
+    tumor_dn = (out["cell_group"].eq("Tumor") & (lib_s >= TUMOR_MIN_UMI) & out["sample_id"].eq("DN")).to_numpy()
+    tumor_hyp = (out["cell_group"].eq("Tumor") & (lib_s >= TUMOR_MIN_UMI) & out["sample_id"].eq("hypoxia_plus")).to_numpy()
+    tumor_dp = (out["cell_group"].eq("Tumor") & (lib_s >= TUMOR_MIN_UMI) & out["sample_id"].eq("DP")).to_numpy()
     gene_rows = []
     neu_ok = out["cell_group"].eq("neutrophil") & (lib_s >= NEU_MIN_UMI)
     for j, g in enumerate(hif_genes):
         hyp = log_s[neu_ok & out["sample_id"].eq("hypoxia_plus").to_numpy(), j]
-        dn = log_s[neu_ok & out["sample_id"].eq("DN").to_numpy(), j]
-        tum_h = log_s[tumor_hyp, j]
-        tum_d = log_s[tumor_ref, j]
+        dp = log_s[neu_ok & out["sample_id"].eq("DP").to_numpy(), j]
         gene_rows.append(
             {
                 "gene": g,
                 "weight": float(w[j]),
-                "d_neu_hypoxia_vs_DN": cohens_d(hyp, dn),
-                "d_tumor_hypoxia_vs_DN": cohens_d(tum_h, tum_d),
+                "d_neu_hypoxia_vs_DP": cohens_d(hyp, dp),
+                "d_tumor_hypoxia_vs_DN": cohens_d(log_s[tumor_hyp, j], log_s[tumor_dn, j]),
+                "d_tumor_DP_vs_DN": cohens_d(log_s[tumor_dp, j], log_s[tumor_dn, j]),
                 "frac_nz": float((spl[:, j] > 0).mean()),
             }
         )
     gene_df = pd.DataFrame(gene_rows)
     meta = {
         "hif_genes": hif_genes,
-        "h_lo_tumor_DN": h_lo,
-        "h_hi_tumor_hypoxia": h_hi,
-        "n_tumor_anchor_DN": int(tumor_ref.sum()),
-        "n_tumor_anchor_hypoxia": int(tumor_hyp.sum()),
+        "calibration": "E14S Tumor QC (spliced UMI>=5000); θ logistic from E14 median vs E15 HIF-high quartile",
+        "h_lo_e14_tumor": cal["h_lo"],
+        "h_hi_e15_tumor": cal["h_hi"],
+        "n_e14_tumor": cal["n_e14_tumor"],
+        "n_e15_tumor": cal["n_e15_tumor"],
+        "e15_tumor_theta": cal["e15_tumor_theta"],
+        "e15_neu_theta_median": cal["e15_neu_theta_median"],
+        "e14_neu_theta_median": cal["e14_neu_theta_median"],
+        "e15_neu_persistent_frac": cal["e15_neu_persistent_frac"],
+        "e15_neu_reverted_frac": cal["e15_neu_reverted_frac"],
         "theta_low": T_LOW,
         "theta_high": T_HIGH,
         "neu_min_umi": NEU_MIN_UMI,
@@ -243,24 +280,26 @@ def score_hif(adata: ad.AnnData, scores: pd.DataFrame) -> tuple[pd.DataFrame, pd
     return out, gene_df, meta
 
 
-def auroc_hif(cells: pd.DataFrame, group: str) -> dict:
-    sub = cells[cells["cell_group"].eq(group) & cells["spliced_umi"].ge(NEU_MIN_UMI if group == "neutrophil" else TUMOR_MIN_UMI)]
-    a = sub[sub["sample_id"].eq("hypoxia_plus")]
-    b = sub[sub["sample_id"].eq("DN")]
+def auroc_hif(cells: pd.DataFrame, group: str, pos="hypoxia_plus", neg="DN") -> dict:
+    min_umi = NEU_MIN_UMI if group == "neutrophil" else TUMOR_MIN_UMI
+    sub = cells[cells["cell_group"].eq(group) & cells["spliced_umi"].ge(min_umi)]
+    a = sub[sub["sample_id"].eq(pos)]
+    b = sub[sub["sample_id"].eq(neg)]
+    out = {
+        "pos": pos,
+        "neg": neg,
+        "n_pos": int(len(a)),
+        "n_neg": int(len(b)),
+        "auroc_hif": None,
+        "median_theta_pos": float(a["theta_normoxic"].median()) if len(a) else None,
+        "median_theta_neg": float(b["theta_normoxic"].median()) if len(b) else None,
+    }
     if len(a) < 8 or len(b) < 8:
-        return {"n_hypoxia_plus": int(len(a)), "n_DN": int(len(b)), "auroc_hif": None}
+        return out
     y = np.r_[np.ones(len(a)), np.zeros(len(b))]
     s = np.r_[a["hif_score"].to_numpy(), b["hif_score"].to_numpy()]
-    return {
-        "n_hypoxia_plus": int(len(a)),
-        "n_DN": int(len(b)),
-        "auroc_hif": float(roc_auc_score(y, s)),
-        "median_theta_hypoxia_plus": float(a["theta_normoxic"].median()),
-        "median_theta_DN": float(b["theta_normoxic"].median()),
-        "median_theta_DP": float(sub.loc[sub["sample_id"].eq("DP"), "theta_normoxic"].median())
-        if sub["sample_id"].eq("DP").any()
-        else None,
-    }
+    out["auroc_hif"] = float(roc_auc_score(y, s))
+    return out
 
 
 def plot_figures(cells: pd.DataFrame, outdir: Path) -> None:
@@ -299,7 +338,7 @@ def plot_figures(cells: pd.DataFrame, outdir: Path) -> None:
             data.append(v)
             labs.append(f"{grp}\n{s.replace('_plus', '+')}")
             cols.append(c)
-    bp = ax.boxplot(data, labels=labs, showfliers=False, patch_artist=True)
+    bp = ax.boxplot(data, tick_labels=labs, showfliers=False, patch_artist=True)
     for patch, c in zip(bp["boxes"], cols):
         patch.set_facecolor(c)
         patch.set_alpha(0.55)
@@ -328,7 +367,7 @@ def main() -> int:
     mapping = load_symbols()
     adata = load_merged(mapping)
     scores = annotate(adata)
-    cells, gene_df, meta = score_hif(adata, scores)
+    cells, gene_df, meta = score_hif(adata, scores, mapping)
 
     neu = cells[cells["cell_group"].eq("neutrophil")]
     neu_qc = neu[neu["spliced_umi"] >= NEU_MIN_UMI]
@@ -347,8 +386,11 @@ def main() -> int:
         .size()
         .unstack(fill_value=0)
         .to_dict(),
-        "neutrophil_hif_auroc": auroc_hif(cells, "neutrophil"),
-        "tumor_hif_auroc": auroc_hif(cells, "Tumor"),
+        "neutrophil_hif_auroc_vs_DN": auroc_hif(cells, "neutrophil", "hypoxia_plus", "DN"),
+        "neutrophil_hif_auroc_vs_DP": auroc_hif(cells, "neutrophil", "hypoxia_plus", "DP"),
+        "tumor_hif_auroc_vs_DN": auroc_hif(cells, "Tumor", "hypoxia_plus", "DN"),
+        "tumor_hif_auroc_DP_vs_DN": auroc_hif(cells, "Tumor", "DP", "DN"),
+        "tumor_hif_auroc_DP_vs_hypoxia": auroc_hif(cells, "Tumor", "DP", "hypoxia_plus"),
     }
     cells.to_csv(OUT / "cells.csv")
     gene_df.to_csv(OUT / "hif_gene_qc.csv", index=False)
@@ -358,8 +400,10 @@ def main() -> int:
 
     print("neutrophils (any / QC UMI>=1500):", len(neu), len(neu_qc))
     print(neu_qc.groupby(["sample_id", "hif_state"]).size().unstack(fill_value=0))
-    print("neu HIF AUROC hypoxia+ vs DN:", summary["neutrophil_hif_auroc"])
-    print("tumor HIF AUROC hypoxia+ vs DN:", summary["tumor_hif_auroc"])
+    print("neu HIF AUROC hypoxia+ vs DN:", summary["neutrophil_hif_auroc_vs_DN"])
+    print("neu HIF AUROC hypoxia+ vs DP:", summary["neutrophil_hif_auroc_vs_DP"])
+    print("tumor HIF AUROC hypoxia+ vs DN:", summary["tumor_hif_auroc_vs_DN"])
+    print("tumor HIF AUROC DP vs DN:", summary["tumor_hif_auroc_DP_vs_DN"])
     print("wrote", OUT)
     return 0
 
