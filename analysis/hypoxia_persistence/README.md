@@ -157,6 +157,16 @@ python analysis/hypoxia_persistence/hypoxia_states.py \
 
 Outputs: `hypoxia_states.csv`. Only input is `E14SE15S_gex_adt_placed.h5ad`.
 
+## Did the E15 Image-IT / GFP sort scoop TAM via autofluorescence?
+
+Image-IT LIVE Green ROS (carboxy-H2DCFDA) emits in the GFP/FITC band. TAMs autofluoresce there, and they also make real ROS. `python analysis/hypoxia_persistence/ros_sort_tam.py`.
+
+**No — E15 is not a TAM-autofluor dump.** Relative to E14, Tumor is enriched (OR 5.9), neutrophils are enriched (OR 1.9), TAM are **depleted** (OR 0.66), and `others` (T/NK, Ly6c monocytes, low-UMI) are dumped (OR 0.28). That is what a FITC-high / ROS+ gate does to a digest: keep tumor + ROS-burst myeloid, drop lymphocytes.
+
+E15 TAM are not a selected autofluor tail of E14 TAM (UMI AUROC 0.53, mito% 0.58, TAM-marker score identical). NOX2 is **lower** in E15 TAM, the opposite of picking oxidative-burst macrophages. Mild lysosome/NRF2 upticks (d ≈ 0.33) are compatible with true DCF+ ROS or hypoxia in TAM, not with autofluorescence as the main gate.
+
+Neutrophil share among non-tumor cells rises 9% → 24%; that is the myeloid population that tracks a ROS/FITC sort better than TAM. There is still no FACS plot or unsorted digest, so we cannot prove TAM in E15 are DCF+ rather than residual autofluor — only that autofluor-TAM is a poor explanation of **who** made it into E15.
+
 ## Public validation of θ
 
 `analysis/hypoxia_persistence/validation/` scores human orthologs of the Tumor HIF module
