@@ -225,29 +225,29 @@ def run_kinetics(
     mem_cut: float = 1.0,
     residualize_v_cycle: bool = True,
     smooth_k: int = 30,
+    cell_group: str = TUMOR,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     if "cell_group" not in adata.obs:
         raise SystemExit("obs['cell_group'] missing; run annotate_cell_groups.py first")
     table = load_reversion_table(genes_path)
     var_names = np.asarray(adata.var_names.astype(str))
-    tumor = adata.obs["cell_group"].astype(str).to_numpy() == TUMOR
-    if tumor.sum() < 50:
-        raise SystemExit(f"too few Tumor cells: {tumor.sum()}")
+    in_group = adata.obs["cell_group"].astype(str).to_numpy() == cell_group
+    if in_group.sum() < 50:
+        raise SystemExit(f"too few {cell_group} cells: {in_group.sum()}")
 
-    ad_t = adata[tumor].copy()
+    ad_t = adata[in_group].copy()
     sample = ad_t.obs["sample"].astype(str).to_numpy()
     e14 = sample == NORMOXIA
     e15 = sample == HYPOXIA
     if e14.sum() < 20 or e15.sum() < 20:
-        raise SystemExit(f"Tumor needs both samples; E14={e14.sum()} E15={e15.sum()}")
+        raise SystemExit(f"{cell_group} needs both samples; E14={e14.sum()} E15={e15.sum()}")
 
     lib_s = np.asarray(ad_t.layers["spliced"].sum(axis=1), dtype=np.float64).ravel()
     lib_u = np.asarray(ad_t.layers["unspliced"].sum(axis=1), dtype=np.float64).ravel()
     keep = lib_s >= min_umi
     if keep.sum() < 50 or (keep & e14).sum() < 15:
         raise SystemExit(
-            f"min_umi={min_umi} leaves Tumor n={keep.sum()} E14={(keep & e14).sum()}; "
-            "E14 tumor libraries are much smaller than E15"
+            f"min_umi={min_umi} leaves {cell_group} n={keep.sum()} E14={(keep & e14).sum()}"
         )
     dropped = int((~keep).sum())
     ad_t = ad_t[keep].copy()
@@ -256,7 +256,10 @@ def run_kinetics(
     e15 = e15[keep]
     lib_s = lib_s[keep]
     lib_u = lib_u[keep]
-    print(f"Tumor QC min spliced UMI {min_umi}: kept {int(keep.sum())} dropped {dropped} (E14={e14.sum()} E15={e15.sum()})")
+    print(
+        f"{cell_group} QC min spliced UMI {min_umi}: kept {int(keep.sum())} dropped {dropped} "
+        f"(E14={e14.sum()} E15={e15.sum()})"
+    )
     print(
         f"median spliced UMI E14={np.median(lib_s[e14]):.0f} E15={np.median(lib_s[e15]):.0f}; "
         f"median U/S E14={np.median(lib_u[e14] / np.maximum(lib_s[e14], 1)):.3f} "
@@ -407,7 +410,7 @@ def run_kinetics(
     cells = pd.DataFrame(
         {
             "sample": sample,
-            "cell_group": TUMOR,
+            "cell_group": cell_group,
             "cycle_s": s_score,
             "cycle_g2m": g2m_score,
             "hif_score": h,
@@ -426,7 +429,7 @@ def run_kinetics(
         cells["umap_x"] = np.asarray(ad_t.obsm["X_umap"])[:, 0]
         cells["umap_y"] = np.asarray(ad_t.obsm["X_umap"])[:, 1]
 
-    print(f"Tumor n={len(cells)} E14={e14.sum()} E15={e15.sum()}")
+    print(f"{cell_group} n={len(cells)} E14={e14.sum()} E15={e15.sum()}")
     print("HIF-down used for θ:", ", ".join(hif_genes))
     print("velocity genes:", ", ".join(kappa.keys()))
     print("memory genes:", ", ".join(mem_genes))
@@ -470,12 +473,23 @@ def main() -> int:
     ap.add_argument("--out-control", default=str(HERE / "hypoxia_kinetics_control.csv"))
     ap.add_argument("--write-h5ad", action="store_true")
     ap.add_argument("--smooth-k", type=int, default=30)
+    ap.add_argument("--cell-group", default=TUMOR)
+    ap.add_argument("--min-umi", type=float, default=None)
     args = ap.parse_args()
 
     import anndata as ad
 
     adata = ad.read_h5ad(args.h5ad)
-    cells, qc, ctrl = run_kinetics(adata, Path(args.genes), smooth_k=args.smooth_k)
+    min_umi = args.min_umi
+    if min_umi is None:
+        min_umi = 1500.0 if args.cell_group == "neutrophil" else 5000.0
+    cells, qc, ctrl = run_kinetics(
+        adata,
+        Path(args.genes),
+        smooth_k=args.smooth_k,
+        cell_group=args.cell_group,
+        min_umi=min_umi,
+    )
     Path(args.out_cells).parent.mkdir(parents=True, exist_ok=True)
     cells.to_csv(args.out_cells)
     qc.to_csv(args.out_qc, index=False)
