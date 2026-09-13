@@ -6,3 +6,4 @@ __pycache__/
 *.fastq.gz
 *.mtx
 *.mtx.gz
+analysis/hypoxia_persistence/validation/data/

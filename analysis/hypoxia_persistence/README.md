@@ -127,3 +127,10 @@ python analysis/hypoxia_persistence/hypoxia_states.py \
 4. Optional GFP gate: GFP− E15 cells are `unlabeled_*` instead of reverted/persistent.
 
 Outputs: `hypoxia_states.csv`. Only input is `E14SE15S_gex_adt_placed.h5ad`.
+
+## Public validation of θ
+
+`analysis/hypoxia_persistence/validation/` scores human orthologs of the Tumor HIF module
+on GEO accessions (priority: GSE200207, GSE296547, GSE227508 skipped ~3 GB + BAM,
+GSE240212 Visium Moran I, GSE292771 HIF KO, GSE30019 bulk reox). Velocity and GFP
+history are not testable on these files. Write-up and numbers: `validation/README.md`.
