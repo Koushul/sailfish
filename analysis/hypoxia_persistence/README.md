@@ -32,6 +32,25 @@ Mapping onto this experiment:
 No GFP feature is in the sailfish GEX/ADT matrices (no `eGFP` gene, no GFP CITE channel).
 Until a GFP column is passed, **all E15 cells are treated as exposed**.
 
+## Cell groups
+
+Four groups on `E14SE15S_gex_adt_placed.h5ad` (RNA only; CITE protein UMIs are essentially empty).
+
+```bash
+python analysis/hypoxia_persistence/annotate_cell_groups.py --write-h5ad
+```
+
+Writes `cell_groups.csv` and `obs['cell_group']`.
+
+| group | how it is called | n |
+|---|---|---|
+| Tumor | Ptprc-low clusters, typically high UMI | 3085 |
+| TAM | C1q / Csf1r / Cd68 / Adgre1 clusters (not S100a8/Cxcr2) | 4389 |
+| neutrophil | S100a8/S100a9/Cxcr2 clusters | 1476 |
+| others | monocytes (Ly6c2/Ccr2/Chil3), T/NK, DC, low-UMI | 3118 |
+
+Cycling vs non-cycling tumor are both `Tumor`. Classical monocytes are `others`, not TAM.
+
 ## Genes expected to move when cells actively revert
 
 Ranked list (mouse symbols for MC38): `reversion_key_genes.tsv`.
