@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>E14S / E15S · UMAP by cell group</title>
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+  <style>
+    :root {
+      --bg: #000;
+      --text: #fff;
+      --muted: #8a8a8a;
+      --line: #1a1a1a;
+      --panel: #0a0a0a;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Courier New", "Roboto Mono", ui-monospace, monospace;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+    header {
+      padding: 0.85rem 1.25rem;
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      flex-wrap: wrap;
+    }
+    header h1 {
+      margin: 0;
+      font-size: 0.95rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+    header p { margin: 0.2rem 0 0; color: var(--muted); font-size: 0.72rem; }
+    .controls { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; }
+    button, select {
+      font-family: inherit;
+      font-size: 0.75rem;
+      background: #111;
+      color: #fff;
+      border: 1px solid #333;
+      padding: 0.35rem 0.65rem;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    button.active { border-color: #6bcf9e; color: #6bcf9e; }
+    #plot { height: calc(100vh - 72px); }
+    .counts { color: var(--muted); font-size: 0.72rem; }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>E14S / E15S UMAP</h1>
+      <p>12,068 placed cells · colored by Tumor / TAM / neutrophil / others</p>
+    </div>
+    <div class="controls">
+      <span class="counts" id="counts"></span>
+      <button type="button" id="color-group" class="active">cell group</button>
+      <button type="button" id="color-sample">sample</button>
+    </div>
+  </header>
+  <div id="plot"></div>
+  <script src="cells.js"></script>
+  <script>
+    const C = window.CELLS;
+    const GROUP_COLORS = {
+      Tumor: "#e05c5c",
+      TAM: "#6bcf9e",
+      neutrophil: "#e8c547",
+      others: "#7aa2f7",
+    };
+    const SAMPLE_COLORS = { E14S: "#6bcf9e", E15S: "#c084fc" };
+    const GROUP_ORDER = ["Tumor", "TAM", "neutrophil", "others"];
+
+    function countMap(arr) {
+      const m = {};
+      for (const v of arr) m[v] = (m[v] || 0) + 1;
+      return m;
+    }
+
+    const groupN = countMap(C.group);
+    document.getElementById("counts").textContent = GROUP_ORDER.map(
+      (g) => g + " " + (groupN[g] || 0)
+    ).join(" · ");
+
+    let colorBy = "group";
+
+    function traces() {
+      if (colorBy === "sample") {
+        return ["E14S", "E15S"].map((s) => {
+          const x = [], y = [], text = [];
+          for (let i = 0; i < C.x.length; i++) {
+            if (C.sample[i] !== s) continue;
+            x.push(C.x[i]); y.push(C.y[i]);
+            text.push(C.barcode[i] + " · " + C.group[i] + " · " + s);
+          }
+          return {
+            type: "scattergl",
+            mode: "markers",
+            name: s + " (" + x.length + ")",
+            x, y, text,
+            hoverinfo: "text",
+            marker: { size: 4, opacity: 0.7, color: SAMPLE_COLORS[s] },
+          };
+        });
+      }
+      return GROUP_ORDER.map((g) => {
+        const x = [], y = [], text = [];
+        for (let i = 0; i < C.x.length; i++) {
+          if (C.group[i] !== g) continue;
+          x.push(C.x[i]); y.push(C.y[i]);
+          text.push(C.barcode[i] + " · " + g + " · " + C.sample[i]);
+        }
+        return {
+          type: "scattergl",
+          mode: "markers",
+          name: g + " (" + x.length + ")",
+          x, y, text,
+          hoverinfo: "text",
+          marker: { size: 4, opacity: 0.75, color: GROUP_COLORS[g] },
+        };
+      });
+    }
+
+    const layout = {
+      paper_bgcolor: "#000",
+      plot_bgcolor: "#000",
+      font: { color: "#c8c8c8", family: "Courier New, monospace", size: 12 },
+      margin: { l: 40, r: 20, t: 20, b: 40 },
+      xaxis: { title: "UMAP 1", gridcolor: "#1a1a1a", zeroline: false, color: "#8a8a8a" },
+      yaxis: { title: "UMAP 2", gridcolor: "#1a1a1a", zeroline: false, color: "#8a8a8a", scaleanchor: "x" },
+      legend: { bgcolor: "rgba(10,10,10,0.85)", bordercolor: "#222", borderwidth: 1 },
+      hovermode: "closest",
+    };
+
+    function draw() {
+      Plotly.react("plot", traces(), layout, { responsive: true, displaylogo: false });
+    }
+    draw();
+
+    document.getElementById("color-group").onclick = () => {
+      colorBy = "group";
+      document.getElementById("color-group").classList.add("active");
+      document.getElementById("color-sample").classList.remove("active");
+      draw();
+    };
+    document.getElementById("color-sample").onclick = () => {
+      colorBy = "sample";
+      document.getElementById("color-sample").classList.add("active");
+      document.getElementById("color-group").classList.remove("active");
+      draw();
+    };
+  </script>
+</body>
+</html>

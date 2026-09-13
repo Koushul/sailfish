@@ -51,6 +51,12 @@ Writes `cell_groups.csv` and `obs['cell_group']`.
 
 Cycling vs non-cycling tumor are both `Tumor`. Classical monocytes are `others`, not TAM.
 
+## UMAP site
+
+https://cozy-koan-vdzb.here.now/
+
+UMAP of the 12,068 placed cells, colored by `cell_group` (toggle sample). Built from `site_umap/` — **new slug**, does not overwrite other here.now sites.
+
 ## Genes expected to move when cells actively revert
 
 Ranked list (mouse symbols for MC38): `reversion_key_genes.tsv`.
