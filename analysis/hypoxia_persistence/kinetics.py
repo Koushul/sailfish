@@ -196,6 +196,7 @@ def run_kinetics(
     t_low: float = 0.30,
     t_high: float = 0.70,
     mem_cut: float = 1.0,
+    residualize_v_cycle: bool = True,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     if "cell_group" not in adata.obs:
         raise SystemExit("obs['cell_group'] missing; run annotate_cell_groups.py first")
@@ -324,10 +325,13 @@ def run_kinetics(
     v_w = np.asarray(v_w, dtype=np.float64)
     v_w = v_w / v_w.sum()
     v_reox = -(v_mat @ v_w)
-    X14 = np.column_stack([s_score[e14] - s0, g2m_score[e14] - g0])
-    coef, *_ = np.linalg.lstsq(X14, v_reox[e14], rcond=None)
-    v_reox = v_reox - coef[0] * (s_score - s0) - coef[1] * (g2m_score - g0)
-    print(f"v_reox cycle residualization on E14: b_S={coef[0]:.3f} b_G2M={coef[1]:.3f}")
+    cycle_coef = (0.0, 0.0)
+    if residualize_v_cycle:
+        X14 = np.column_stack([s_score[e14] - s0, g2m_score[e14] - g0])
+        coef, *_ = np.linalg.lstsq(X14, v_reox[e14], rcond=None)
+        cycle_coef = (float(coef[0]), float(coef[1]))
+        v_reox = v_reox - coef[0] * (s_score - s0) - coef[1] * (g2m_score - g0)
+    print(f"v_reox cycle residualization: {residualize_v_cycle} b_S={cycle_coef[0]:.3f} b_G2M={cycle_coef[1]:.3f}")
 
     mem_genes = []
     for g in ["Muc1", "Sod2"]:

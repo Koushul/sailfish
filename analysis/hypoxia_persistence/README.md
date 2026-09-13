@@ -80,7 +80,23 @@ Tumor only (`cell_group == Tumor`), spliced/unspliced 1-D model. E14S is the nev
 | memory | Muc1 is undetectable; Sod2 z vs E14 |
 | states | Velocity first (`reverting` / `inducing`). Else E14 → `never_hypoxic`. E15: `memory` / `reverted` / `persistent` / `partial`. Low-UMI tumor → `tumor_low_umi`. |
 
-Control table: `hypoxia_kinetics_control.csv`. Without GFP, E15 + high θ is **reverted or never-exposed**; E14 is the only clean never-hypoxic class. E14 `inducing` is the noise floor for “moving toward hypoxia.”
+Control table: `hypoxia_kinetics_control.csv`. Without GFP, E15 + high θ is **reverted or never-exposed**; E14 is the only clean never-hypoxic class.
+
+## scVelo vs 1-D model (cycle on/off)
+
+`python analysis/hypoxia_persistence/experiments_scvelo.py`
+
+scVelo stochastic on all 12,068 cells (HVGs ∪ HIF ∪ cycle genes). Cycle correction residualizes spliced+unspliced on S/G2M before moments (all cells, or E14-fit only).
+
+| run | v_cycle vs S | v_HIF vs S | \|v_cycle\|/\|v_HIF\| | % cells cycle dominates | vs our v_reox (tumor) |
+|---|---|---|---|---|---|
+| scVelo, no CC | **0.50** | 0.14 | 0.52 | **25%** | r = 0.17 |
+| scVelo, CC (all cells) | 0.25 | 0.05 | 0.31 | 12% | r = 0.15 |
+| scVelo, CC (E14 fit) | 0.39 | 0.15 | 0.33 | 14% | r = 0.17 |
+| our 1-D, CC on v | — | v_reox vs S **0.006** | — | — | (self) |
+| our 1-D, CC off | — | v_reox vs S −0.016 | — | — | vs CC-on **r = 0.986** |
+
+scVelo on all cells is a **cell-cycle velocity** (v_cycle tracks S-phase at r = 0.50). Residualizing cycle cuts that in half but does not make scVelo match the HIF 1-D model (r ≈ 0.15–0.17). Our v_reox is already nearly orthogonal to cycle; turning cycle residualization off barely changes it. E14 `inducing` is the noise floor for “moving toward hypoxia.”
 
 ## Run
 
