@@ -86,6 +86,20 @@ v1 of this script z-scored each gene’s residual to **E14** (shallow, different
 
 Corrected E15 QC tumor (n = 2327): reverted 717, persistent 704, partial 505, inducing 277, memory 122, reverting **2**. E14 QC (n = 152): never_hypoxic 131, inducing 21, reverting 0. E15 inducing (12%) is **not** above the E14 floor (14%); those cells are high-θ with u > κ_persist s, the expected low-expression artifact of a persist-only κ. Reverting is 2 cells (0.09%). Active HIF transitions are still absent after the estimator fix.
 
+## Neutrophil 1-D model (same Tumor θ genes)
+
+Neutrophil depth is matched E14/E15 (~3.5–4k spliced); min UMI 1500 keeps 1387/1476. Native HIF Cohen’s d vs E14 is ~0 (only Slc2a1 ≥ 0.2), so a neutrophil-refit θ set does not exist. The Tumor module is transferred (`--theta-from hypoxia_kinetics_gene_qc.csv`).
+
+```bash
+python analysis/hypoxia_persistence/kinetics.py --cell-group neutrophil \
+  --theta-from analysis/hypoxia_persistence/hypoxia_kinetics_gene_qc.csv \
+  --out-cells analysis/hypoxia_persistence/neutrophil_kinetics.csv \
+  --out-qc analysis/hypoxia_persistence/neutrophil_kinetics_gene_qc.csv \
+  --out-control analysis/hypoxia_persistence/neutrophil_kinetics_control.csv
+```
+
+E15 QC neutrophils (n = 1024): **reverted 639 (62%)**, persistent 190 (19%), memory 73, partial 93, inducing 20, reverting 9. E14 (n = 363): never_hypoxic 336, inducing 25, reverting 2. Velocity is only P4ha1+Ero1a and is cycle-entangled (b_S = −1.56); treat states as **θ**, not v. Glycolytic Tumor-weighted genes (Eno1 d = −0.47) are lower in E15 neutrophils, so most score E14-like (reverted), unlike Tumor (~30% persistent / 31% reverted).
+
 ## Spliced / unspliced quality (is missing velocity a data limit?)
 
 `python analysis/hypoxia_persistence/us_qc.py` → `us_qc_library.csv`, `us_qc_hif_genes.csv`, `us_qc_velocity_panel.csv`.
