@@ -32,6 +32,12 @@ Mapping onto this experiment:
 No GFP feature is in the sailfish GEX/ADT matrices (no `eGFP` gene, no GFP CITE channel).
 Until a GFP column is passed, **all E15 cells are treated as exposed**.
 
+## Genes expected to move when cells actively revert
+
+Ranked list (mouse symbols for MC38): `reversion_key_genes.tsv`.
+
+Reversion is mostly **HIF-1α protein destroyed by PHD/VHL within minutes of O2**, then HIF target mRNAs fall (hours; Lai peak ~8–12 h). A ROS/NRF2 pulse can **raise** Hmox1/Nqo1. Godet **Muc1** staying high is memory, not reversion.
+
 ## Run
 
 ```bash
