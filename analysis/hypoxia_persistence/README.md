@@ -86,6 +86,35 @@ v1 of this script z-scored each gene’s residual to **E14** (shallow, different
 
 Corrected E15 QC tumor (n = 2327): reverted 717, persistent 704, partial 505, inducing 277, memory 122, reverting **2**. E14 QC (n = 152): never_hypoxic 131, inducing 21, reverting 0. E15 inducing (12%) is **not** above the E14 floor (14%); those cells are high-θ with u > κ_persist s, the expected low-expression artifact of a persist-only κ. Reverting is 2 cells (0.09%). Active HIF transitions are still absent after the estimator fix.
 
+## Spliced / unspliced quality (is missing velocity a data limit?)
+
+`python analysis/hypoxia_persistence/us_qc.py` → `us_qc_library.csv`, `us_qc_hif_genes.csv`, `us_qc_velocity_panel.csv`.
+
+**The 10x velocyto run is fine. The HIF panel is not.**
+
+| slice | median spliced | median unspliced | U/S | mapping |
+|---|---|---|---|---|
+| E14 all cells | 6.9k | 1.4k | 0.20 | 0.89 |
+| E15 all cells | 9.2k | 2.1k | 0.19 | 0.89 |
+| E14 TAM | 7.6k | 1.5k | 0.19 | 0.89 |
+| E15 TAM | 7.8k | 1.8k | 0.22 | 0.88 |
+| E14 Tumor (all / QC ≥5k) | 2.8k / **14.2k** | 1.1k / 2.3k | 0.28 / 0.20 | 0.80 / 0.90 |
+| E15 Tumor (all / QC) | **59.6k / 67.6k** | 7.9k / 8.5k | 0.13 / 0.12 | 0.91 / 0.92 |
+
+Genome-wide this is ordinary 10x (~15% unspliced of total, ~12% ambiguous). E15 Tumor QC has **2355 genes with mean unspliced ≥ 1** — enough for a general RNA-velocity analysis. E14 vs E15 depth is matched for TAM/neutrophil/others; only Tumor is ~20× deeper in E15 (large cells), and 282/434 E14 tumor fail the 5k spliced gate (those failures map at 0.73, i.e. junk, not just shallow).
+
+The kinetic genes are the bottleneck:
+
+| | E14 Tumor QC (n=152) | E15 Tumor QC (n=2327) |
+|---|---|---|
+| 9 velocity genes, median spliced UMIs | 36.5 | 176 |
+| same panel, median **unspliced** UMIs | **1** | **7** |
+| cells with **zero** unspliced on the whole panel | **40%** | 4% |
+
+Per-gene E15 means: P4ha1 and Ero1a are the only HIF genes with mean u ≳ 1. Ldha is 82 spliced vs **0.52 unspliced** (κ ≈ 0.006); **ambiguous 7.6** — most intron-overlapping Ldha reads were not assigned to unspliced. Cited2 is 27 spliced and **u = 0 in every cell** (10x 3′ never sees that intron). Car9 / Aldoa / Angptl4 / Ankrd37 were dropped from v for the same reason.
+
+So θ (spliced HIF) is well measured on E15 and adequate on the 152 E14 QC cells. **v is counting ~7 intron UMIs per cell, then kNN-smoothing them.** That can rule out a huge transcription burst; it cannot call a few-percent `reverting` class. The “no active reversion” result is therefore only a weak negative: a real reox wave could hide in Poisson + ambiguous assignment. It is **not** evidence that velocyto failed.
+
 ## scVelo vs 1-D model (cycle on/off)
 
 `python analysis/hypoxia_persistence/experiments_scvelo.py`
