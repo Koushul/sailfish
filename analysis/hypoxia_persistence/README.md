@@ -100,6 +100,8 @@ python analysis/hypoxia_persistence/kinetics.py --cell-group neutrophil \
 
 E15 QC neutrophils (n = 1024): **reverted 639 (62%)**, persistent 190 (19%), memory 73, partial 93, inducing 20, reverting 9. E14 (n = 363): never_hypoxic 336, inducing 25, reverting 2. Velocity is only P4ha1+Ero1a and is cycle-entangled (b_S = −1.56); treat states as **θ**, not v. Glycolytic Tumor-weighted genes (Eno1 d = −0.47) are lower in E15 neutrophils, so most score E14-like (reverted), unlike Tumor (~30% persistent / 31% reverted).
 
+DCF+ cannot be read off RNA (burst is p47phox phosphorylation / oxidase assembly, [Wright 2013](https://pmc.ncbi.nlm.nih.gov/articles/PMC3590155/), [Dang 2006](https://www.jci.org/articles/view/27544)). Proxies in `neutrophil_dcf_rna.csv`: E15 vs E14 neutrophils have **higher priming transcripts** (Cxcl1/2, Il1b, Icam1; AUROC 0.70) but **lower NOX2 components** (AUROC 0.40) and **no NRF2/ROS-response increase**. That is primed/inflammatory, not a DCF+ or HIF+ call.
+
 ## Spliced / unspliced quality (is missing velocity a data limit?)
 
 `python analysis/hypoxia_persistence/us_qc.py` → `us_qc_library.csv`, `us_qc_hif_genes.csv`, `us_qc_velocity_panel.csv`.
