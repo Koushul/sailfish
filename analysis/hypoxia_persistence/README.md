@@ -159,13 +159,22 @@ Outputs: `hypoxia_states.csv`. Only input is `E14SE15S_gex_adt_placed.h5ad`.
 
 ## Did the E15 Image-IT / GFP sort scoop TAM via autofluorescence?
 
-Image-IT LIVE Green ROS (carboxy-H2DCFDA) emits in the GFP/FITC band. TAMs autofluoresce there, and they also make real ROS. `python analysis/hypoxia_persistence/ros_sort_tam.py`.
+Image-iT LIVE Green is carboxy-H2DCFDA; the oxidized product is a fluorescein (FITC/GFP band, ~495/529 nm). Literature on **unstained** FITC autofluorescence, not DCF biology:
 
-**No — E15 is not a TAM-autofluor dump.** Relative to E14, Tumor is enriched (OR 5.9), neutrophils are enriched (OR 1.9), TAM are **depleted** (OR 0.66), and `others` (T/NK, Ly6c monocytes, low-UMI) are dumped (OR 0.28). That is what a FITC-high / ROS+ gate does to a digest: keep tumor + ROS-burst myeloid, drop lymphocytes.
+| FITC AF (high → low) | evidence | our E15 vs E14 |
+|---|---|---|
+| **Eosinophils** | FAD/FMN granules emit ~520 nm; used to FACS-sort unlabeled eos ([Weil 1981](https://pubmed.ncbi.nlm.nih.gov/7460387/); [PMC11617454](https://pmc.ncbi.nlm.nih.gov/articles/PMC11617454/)) | top 5% eos-score **depleted** (OR 0.64) |
+| **Tissue macrophages / TAM** | highest myeloid AF after eos; flavin/NADH in FITC; alveolar/Kupffer AF is a named unmixing component ([Abcam](https://www.abcam.com/en-us/technical-resources/applications/flow-cytometry/flow-cytometry-buffers-reagents-equipment/autofluorescence-in-flow-cytometry); [Mitchell 2010 JLB](https://doi.org/10.1189/jlb.0310184); [PMC8965042](https://pmc.ncbi.nlm.nih.gov/articles/PMC8965042/)) | TAM **depleted** (OR 0.66) |
+| **Neutrophils** | moderate FITC AF, weaker than eos; AF-based neutrophil sorts exist ([Dorward 2013 JLB](https://doi.org/10.1189/jlb.0113040); [Yakimov 2019](https://pmc.ncbi.nlm.nih.gov/articles/PMC6701549/)) | **enriched** (OR 1.94) |
+| **Tumor / epithelium** | elevated, variable metabolic AF ([Smith 2006 Cytometry](https://doi.org/10.1002/cyto.b.20090)) | **enriched** (OR 5.88) |
+| **Monocytes** | > lymphocytes, << tissue macs | mono-like others **depleted** (OR 0.29) |
+| **Lymphocytes (T/NK)** | lowest FITC AF; PBMC unmixing treats them as the dim signature | tnk-like others **depleted** (OR 0.39) |
 
-E15 TAM are not a selected autofluor tail of E14 TAM (UMI AUROC 0.53, mito% 0.58, TAM-marker score identical). NOX2 is **lower** in E15 TAM, the opposite of picking oxidative-burst macrophages. Mild lysosome/NRF2 upticks (d ≈ 0.33) are compatible with true DCF+ ROS or hypoxia in TAM, not with autofluorescence as the main gate.
+`python analysis/hypoxia_persistence/ros_sort_tam.py` and `ros_sort_fitc_literature.csv`.
 
-Neutrophil share among non-tumor cells rises 9% → 24%; that is the myeloid population that tracks a ROS/FITC sort better than TAM. There is still no FACS plot or unsorted digest, so we cannot prove TAM in E15 are DCF+ rather than residual autofluor — only that autofluor-TAM is a poor explanation of **who** made it into E15.
+If the GFP gate were dominated by **autofluorescence**, the literature ranking predicts eosinophils and TAM in, lymphocytes out. Lymphocytes are out, but the two highest-AF populations (eos, TAM) are **not** in — they are depleted. What is in is Tumor and neutrophils, which is the ranking for **true DCF/ROS** (hypoxic tumor ROS + neutrophil burst), not the ranking for FITC AF.
+
+Caveat: TAM are still 32% of E15, so AF can contribute at the margin. It does not explain the sort. There are almost no SiglecF/Epx-high cells in either sample, so eosinophil AF is not a hidden E15 contaminant.
 
 ## Public validation of θ
 
