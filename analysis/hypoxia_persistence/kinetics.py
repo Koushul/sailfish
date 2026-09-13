@@ -226,6 +226,7 @@ def run_kinetics(
     residualize_v_cycle: bool = True,
     smooth_k: int = 30,
     cell_group: str = TUMOR,
+    theta_from_qc: Path | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     if "cell_group" not in adata.obs:
         raise SystemExit("obs['cell_group'] missing; run annotate_cell_groups.py first")
@@ -303,12 +304,25 @@ def run_kinetics(
         )
     qc = pd.DataFrame(rows)
 
-    hif = qc["module"].eq("hif_down") & (qc["spliced_frac"] >= min_spl_nz) & (qc["cohens_d_e15_vs_e14"] >= d_min)
-    if int(hif.sum()) < 4:
-        raise SystemExit(f"only {int(hif.sum())} HIF-down genes passed QC")
-    hif_genes = qc.loc[hif, "gene"].tolist()
-    weights = qc.set_index("gene").loc[hif_genes, "cohens_d_e15_vs_e14"].to_numpy(dtype=np.float64)
-    weights = weights / weights.sum()
+    transferred_w = None
+    if theta_from_qc is not None:
+        tqc = pd.read_csv(theta_from_qc)
+        use = tqc["use_theta"].astype(str).str.lower().isin(["true", "1"])
+        hif_genes = [g for g in tqc.loc[use, "gene"].astype(str) if g in col]
+        if len(hif_genes) < 4:
+            raise SystemExit(f"theta-from {theta_from_qc} left {len(hif_genes)} genes in this group")
+        wsrc = tqc.set_index("gene").loc[hif_genes, "cohens_d_e15_vs_e14"].clip(lower=0).to_numpy(dtype=np.float64)
+        transferred_w = wsrc / wsrc.sum()
+        weights = transferred_w
+        print(f"θ transferred from {theta_from_qc.name}: {', '.join(hif_genes)}")
+    else:
+        hif = qc["module"].eq("hif_down") & (qc["spliced_frac"] >= min_spl_nz) & (qc["cohens_d_e15_vs_e14"] >= d_min)
+        if int(hif.sum()) < 4:
+            raise SystemExit(f"only {int(hif.sum())} HIF-down genes passed QC")
+        hif_genes = qc.loc[hif, "gene"].tolist()
+        weights = qc.set_index("gene").loc[hif_genes, "cohens_d_e15_vs_e14"].to_numpy(dtype=np.float64)
+        weights = np.clip(weights, 0, None)
+        weights = weights / weights.sum()
 
     z_s = np.column_stack([z_vs_ref(np.log1p(spl[:, col[g]]), e14) for g in hif_genes])
     h = z_s @ weights
@@ -352,30 +366,39 @@ def run_kinetics(
 
     v_genes = list(kappa)
     if not v_genes:
-        raise SystemExit("no genes passed unspliced/κ QC for velocity")
-    spl_v = np.column_stack([spl[:, col[g]] for g in v_genes])
-    uns_v = np.column_stack([uns[:, col[g]] for g in v_genes])
-    k_vec = np.asarray([kappa[g] for g in v_genes], dtype=np.float64)
-    if smooth_k and smooth_k > 1:
-        pcs = PCA(n_components=min(8, max(2, len(hif_genes))), random_state=0).fit_transform(z_s)
-        spl_v = knn_smooth(spl_v, pcs, smooth_k)
-        uns_v = knn_smooth(uns_v, pcs, smooth_k)
-        print(f"velocity moments: kNN k={smooth_k} on HIF spliced PCA")
-    v_mat = uns_v - spl_v * k_vec
-    gene_scale = np.array([mad(v_mat[persist_ss, j]) for j in range(len(v_genes))], dtype=np.float64)
-    gene_scale = np.where(gene_scale < 1e-8, 1.0, gene_scale)
-    v_w = qc.set_index("gene").loc[v_genes, "cohens_d_e15_vs_e14"].to_numpy(dtype=np.float64)
-    v_w = v_w / v_w.sum()
-    v_reox = -((v_mat / gene_scale) @ v_w)
-    v_reox = v_reox - float(np.median(v_reox[persist_ss]))
-    n_genes_down = np.sum(v_mat < 0, axis=1).astype(np.int32)
-    cycle_coef = (0.0, 0.0)
-    if residualize_v_cycle:
-        X14 = np.column_stack([s_score[e14] - s0, g2m_score[e14] - g0])
-        coef, *_ = np.linalg.lstsq(X14, v_reox[e14], rcond=None)
-        cycle_coef = (float(coef[0]), float(coef[1]))
-        v_reox = v_reox - coef[0] * (s_score - s0) - coef[1] * (g2m_score - g0)
+        print("no genes passed unspliced/κ QC; v_reox set to 0 (θ-only states)")
+        v_reox = np.zeros(e14.size, dtype=np.float64)
+        n_genes_down = np.zeros(e14.size, dtype=np.int32)
+        cycle_coef = (0.0, 0.0)
+    else:
+        spl_v = np.column_stack([spl[:, col[g]] for g in v_genes])
+        uns_v = np.column_stack([uns[:, col[g]] for g in v_genes])
+        k_vec = np.asarray([kappa[g] for g in v_genes], dtype=np.float64)
+        if smooth_k and smooth_k > 1:
+            pcs = PCA(n_components=min(8, max(2, len(hif_genes))), random_state=0).fit_transform(z_s)
+            spl_v = knn_smooth(spl_v, pcs, smooth_k)
+            uns_v = knn_smooth(uns_v, pcs, smooth_k)
+            print(f"velocity moments: kNN k={smooth_k} on HIF spliced PCA")
+        v_mat = uns_v - spl_v * k_vec
+        gene_scale = np.array([mad(v_mat[persist_ss, j]) for j in range(len(v_genes))], dtype=np.float64)
+        gene_scale = np.where(gene_scale < 1e-8, 1.0, gene_scale)
+        if transferred_w is not None:
+            tw = dict(zip(hif_genes, transferred_w))
+            v_w = np.asarray([tw[g] for g in v_genes], dtype=np.float64)
+        else:
+            v_w = qc.set_index("gene").loc[v_genes, "cohens_d_e15_vs_e14"].to_numpy(dtype=np.float64)
+            v_w = np.clip(v_w, 0, None)
+        v_w = v_w / max(v_w.sum(), 1e-12)
+        v_reox = -((v_mat / gene_scale) @ v_w)
         v_reox = v_reox - float(np.median(v_reox[persist_ss]))
+        n_genes_down = np.sum(v_mat < 0, axis=1).astype(np.int32)
+        cycle_coef = (0.0, 0.0)
+        if residualize_v_cycle:
+            X14 = np.column_stack([s_score[e14] - s0, g2m_score[e14] - g0])
+            coef, *_ = np.linalg.lstsq(X14, v_reox[e14], rcond=None)
+            cycle_coef = (float(coef[0]), float(coef[1]))
+            v_reox = v_reox - coef[0] * (s_score - s0) - coef[1] * (g2m_score - g0)
+            v_reox = v_reox - float(np.median(v_reox[persist_ss]))
     print(f"v_reox cycle residualization: {residualize_v_cycle} b_S={cycle_coef[0]:.3f} b_G2M={cycle_coef[1]:.3f}")
 
     mem_genes = []
@@ -475,6 +498,7 @@ def main() -> int:
     ap.add_argument("--smooth-k", type=int, default=30)
     ap.add_argument("--cell-group", default=TUMOR)
     ap.add_argument("--min-umi", type=float, default=None)
+    ap.add_argument("--theta-from", default=None, help="Tumor gene_qc CSV; reuse those θ genes and weights")
     args = ap.parse_args()
 
     import anndata as ad
@@ -489,6 +513,7 @@ def main() -> int:
         smooth_k=args.smooth_k,
         cell_group=args.cell_group,
         min_umi=min_umi,
+        theta_from_qc=Path(args.theta_from) if args.theta_from else None,
     )
     Path(args.out_cells).parent.mkdir(parents=True, exist_ok=True)
     cells.to_csv(args.out_cells)
