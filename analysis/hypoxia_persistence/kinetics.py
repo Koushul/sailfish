@@ -7,9 +7,9 @@ no time course; the derivative is identified from unspliced lag.
 
 Pipeline
 --------
-1. Size-normalize spliced and unspliced by their own UMI totals (not a
-   gene subset). Tumor cells below min_umi are dropped; E14 libraries are
-   much smaller than E15 and would otherwise dominate size-norm artefacts.
+1. Size-normalize spliced and unspliced by the **same** spliced UMI total.
+   Separate u/s library scaling was destroying gene-level u/s (E14 tumor
+   unspliced fraction is ~2× E15). Tumor cells below min_umi are dropped.
 2. Tirosh S / G2M scores (mean log1p). Reported as covariates; they are
    **not** subtracted from HIF genes for θ (glycolytic HIF targets are
    collinear with growth, and residualizing them deletes the hypoxia axis).
@@ -17,18 +17,23 @@ Pipeline
    (E15 vs E14) ≥ d_min. h = d-weighted mean of E14-z-scored log1p spliced.
 4. θ = 1 / (1 + exp((h - h0) / τ)) with h0 midpoint of E14 median and
    E15-upper-quartile median, τ = |h_hyp - h_E14| / 6.
-5. κ_g = E[u]/E[s] on steady-state cells (E14 ∪ E15 lowest 20% θ). Ratio
-   of means is used because unspliced is zero-inflated (median u/s = 0).
-   If κ_E14 / κ_persist exceeds kappa_ratio_max, the gene is kept for θ
-   but dropped from velocity.
-6. v_g = u - κ s  ∝ ds/dt. v_reox = weighted mean of -z(v) on those genes.
-   The scalar v_reox is then residualized on S/G2M fit in E14 only, so
-   cycling is not called reversion. High v_reox = unspliced already down.
-   The same |v| gate is applied to E14: v_reox ≤ −v_cut is inducing
-   (toward hypoxia), the false-positive control. v_cut is the E14 95th
-   percentile of |v_reox|, so both tails share one magnitude.
-7. Memory: Muc1 if detected, else Sod2, z vs E14. High θ + high memory
-   = memory, not full reversion.
+5. κ_g = E[u]/E[s] on **E15 persistent** cells only (lowest 20% θ). E14 is
+   not mixed in: capture of unspliced differs by library. Ratio of means
+   is used because unspliced is zero-inflated (median u/s = 0). Genes with
+   κ_E14 / κ_persist above kappa_ratio_max stay in θ but drop from velocity.
+6. Neighbor-smooth u and s on a HIF-spliced PCA graph, then
+   v_g = u − κ s. Scale each gene by the persistent-cell MAD (same depth as
+   E15), not E14 SD. v_reox = −weighted mean; high = transcription already
+   down. Center so persist median is 0. Cycle residualization is E14-only
+   and optional.
+7. v_cut is the E15-persistent 95th percentile of |v_reox| (depth-matched
+   SS null). Reverting requires hypoxic spliced (θ ≤ t_high) and inducing
+   requires θ ≥ t_low, so high-unspliced outliers at the wrong end of θ
+   are not called transients. E14 still gets the same |v| gate in the
+   control table (unconstrained) as a capture/noise diagnostic.
+
+Memory: Muc1 if detected, else Sod2, z vs E14. High θ + high memory
+= memory, not full reversion.
 
 HIF-1α protein is not observed; Hif1a mRNA is excluded from θ.
 """
@@ -41,6 +46,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from scipy import sparse
+from sklearn.decomposition import PCA
+from sklearn.neighbors import NearestNeighbors
 
 HERE = Path(__file__).resolve().parent
 GENESET_DIR = HERE / "genesets"
@@ -86,6 +93,19 @@ def size_normalize(counts: np.ndarray, lib: np.ndarray | None = None) -> np.ndar
     return counts * (target / lib)[:, None]
 
 
+def knn_smooth(mat: np.ndarray, coords: np.ndarray, k: int) -> np.ndarray:
+    n = mat.shape[0]
+    k = int(max(2, min(k, n)))
+    nn = NearestNeighbors(n_neighbors=k).fit(coords)
+    ind = nn.kneighbors(return_distance=False)
+    return mat[ind].mean(axis=1)
+
+
+def mad(x: np.ndarray) -> float:
+    med = float(np.median(x))
+    return float(np.median(np.abs(x - med)) * 1.4826)
+
+
 def mean_log1p_score(norm: np.ndarray, var_names: np.ndarray, symbols: list[str]) -> np.ndarray:
     idx = gene_index(var_names, symbols)
     if len(idx) < 5:
@@ -106,11 +126,6 @@ def ols_cycle_e14(y: np.ndarray, s: np.ndarray, g2m: np.ndarray, e14: np.ndarray
     if r2 < r2_min:
         return 0.0, 0.0, float(r2)
     return float(coef[1]), float(coef[2]), float(r2)
-
-
-def apply_cycle_adj(y: np.ndarray, s: np.ndarray, g2m: np.ndarray, b_s: float, b_g2m: float, s0: float, g0: float) -> np.ndarray:
-    log_adj = y - b_s * (s - s0) - b_g2m * (g2m - g0)
-    return np.expm1(np.clip(log_adj, 0, None))
 
 
 def cohens_d(a: np.ndarray, b: np.ndarray) -> float:
@@ -139,14 +154,23 @@ def z_vs_ref(x: np.ndarray, ref_mask: np.ndarray) -> np.ndarray:
     return (x - mu) / sd
 
 
-def classify(sample: np.ndarray, theta: np.ndarray, v_reox: np.ndarray, memory_z: np.ndarray, v_cut: float, t_low: float, t_high: float, mem_cut: float) -> np.ndarray:
-    """Velocity first (both directions), then θ states. E14 is not forced steady."""
+def classify(
+    sample: np.ndarray,
+    theta: np.ndarray,
+    v_reox: np.ndarray,
+    memory_z: np.ndarray,
+    v_cut: float,
+    t_low: float,
+    t_high: float,
+    mem_cut: float,
+) -> np.ndarray:
+    """Velocity only counts if θ still matches that direction of travel."""
     n = sample.size
     out = np.array(["unassigned"] * n, dtype=object)
     e14 = sample == NORMOXIA
     e15 = sample == HYPOXIA
-    toward_normoxia = v_reox >= v_cut
-    toward_hypoxia = v_reox <= -v_cut
+    toward_normoxia = (v_reox >= v_cut) & (theta <= t_high)
+    toward_hypoxia = (v_reox <= -v_cut) & (theta >= t_low)
     out[toward_normoxia] = "reverting"
     out[toward_hypoxia] = "inducing"
     moving = toward_normoxia | toward_hypoxia
@@ -161,22 +185,25 @@ def classify(sample: np.ndarray, theta: np.ndarray, v_reox: np.ndarray, memory_z
     return out
 
 
-def direction_control(sample: np.ndarray, v_reox: np.ndarray, v_cut: float) -> pd.DataFrame:
-    """Same |v| gate on E14 (null) vs E15. E14 inducing is the false-positive control."""
+def direction_control(sample: np.ndarray, v_reox: np.ndarray, v_cut: float, theta: np.ndarray, t_low: float, t_high: float) -> pd.DataFrame:
     rows = []
     for name, mask in (("E14S", sample == NORMOXIA), ("E15S", sample == HYPOXIA)):
         n = int(mask.sum())
         n_rev = int((mask & (v_reox >= v_cut)).sum())
         n_ind = int((mask & (v_reox <= -v_cut)).sum())
+        n_rev_ph = int((mask & (v_reox >= v_cut) & (theta <= t_high)).sum())
+        n_ind_ph = int((mask & (v_reox <= -v_cut) & (theta >= t_low)).sum())
         rows.append(
             {
                 "sample": name,
                 "n": n,
                 "v_cut": v_cut,
-                "n_reverting": n_rev,
-                "n_inducing": n_ind,
-                "frac_reverting": n_rev / n if n else np.nan,
-                "frac_inducing": n_ind / n if n else np.nan,
+                "n_reverting": n_rev_ph,
+                "n_inducing": n_ind_ph,
+                "n_reverting_unconstrained": n_rev,
+                "n_inducing_unconstrained": n_ind,
+                "frac_reverting": n_rev_ph / n if n else np.nan,
+                "frac_inducing": n_ind_ph / n if n else np.nan,
                 "median_v_reox": float(np.median(v_reox[mask])),
                 "q05_v_reox": float(np.quantile(v_reox[mask], 0.05)),
                 "q95_v_reox": float(np.quantile(v_reox[mask], 0.95)),
@@ -197,6 +224,7 @@ def run_kinetics(
     t_high: float = 0.70,
     mem_cut: float = 1.0,
     residualize_v_cycle: bool = True,
+    smooth_k: int = 30,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     if "cell_group" not in adata.obs:
         raise SystemExit("obs['cell_group'] missing; run annotate_cell_groups.py first")
@@ -229,6 +257,11 @@ def run_kinetics(
     lib_s = lib_s[keep]
     lib_u = lib_u[keep]
     print(f"Tumor QC min spliced UMI {min_umi}: kept {int(keep.sum())} dropped {dropped} (E14={e14.sum()} E15={e15.sum()})")
+    print(
+        f"median spliced UMI E14={np.median(lib_s[e14]):.0f} E15={np.median(lib_s[e15]):.0f}; "
+        f"median U/S E14={np.median(lib_u[e14] / np.maximum(lib_s[e14], 1)):.3f} "
+        f"E15={np.median(lib_u[e15] / np.maximum(lib_s[e15], 1)):.3f}"
+    )
     cycle_spec = json.loads((GENESET_DIR / "tirosh_cell_cycle_mouse.json").read_text())
     cycle_syms = cycle_spec["S"] + cycle_spec["G2M"]
     cix = gene_index(var_names, cycle_syms)
@@ -241,7 +274,7 @@ def run_kinetics(
     symbols = table["mouse"].tolist()
     gix = gene_index(var_names, symbols)
     spl = size_normalize(csr_cols(ad_t.layers["spliced"], [gix[g] for g in gix]), lib_s)
-    uns = size_normalize(csr_cols(ad_t.layers["unspliced"], [gix[g] for g in gix]), lib_u)
+    uns = size_normalize(csr_cols(ad_t.layers["unspliced"], [gix[g] for g in gix]), lib_s)
     genes = list(gix)
     col = {g: i for i, g in enumerate(genes)}
 
@@ -282,7 +315,8 @@ def run_kinetics(
     theta = logistic_theta(h, h14, h_hyp)
 
     persist_ss = e15 & (theta <= np.quantile(theta[e15], 0.20))
-    ss = e14 | persist_ss
+    if persist_ss.sum() < 20:
+        raise SystemExit("too few E15 persistent cells to estimate κ")
 
     def kappa_means(j: int, mask: np.ndarray) -> float:
         if mask.sum() < 10:
@@ -295,42 +329,50 @@ def run_kinetics(
     kappa = {}
     for g in hif_genes:
         j = col[g]
-        k14, k15, k_ss = kappa_means(j, e14), kappa_means(j, persist_ss), kappa_means(j, ss)
+        k14, k15 = kappa_means(j, e14), kappa_means(j, persist_ss)
         ratio = np.nan
         if np.isfinite(k14) and np.isfinite(k15) and min(k14, k15) > 1e-8:
             ratio = max(k14, k15) / min(k14, k15)
         qc.loc[qc["gene"] == g, "kappa_e14"] = k14
         qc.loc[qc["gene"] == g, "kappa_persist"] = k15
-        qc.loc[qc["gene"] == g, "kappa_ss"] = k_ss
+        qc.loc[qc["gene"] == g, "kappa_ss"] = k15
         qc.loc[qc["gene"] == g, "kappa_ratio"] = ratio
         uns_ok = float(qc.loc[qc["gene"] == g, "unspliced_frac"].iloc[0]) >= min_uns_nz
         ratio_ok = (not np.isfinite(ratio)) or (ratio <= kappa_ratio_max)
-        use_v = uns_ok and np.isfinite(k_ss) and k_ss > 1e-8 and ratio_ok
+        use_v = uns_ok and np.isfinite(k15) and k15 > 1e-8 and ratio_ok
         qc.loc[qc["gene"] == g, "use_velocity"] = use_v
         if use_v:
-            kappa[g] = k_ss
+            kappa[g] = k15
 
     qc["use_theta"] = qc["gene"].isin(hif_genes)
     qc["use_velocity"] = qc["use_velocity"].fillna(False)
 
-    v_cols = []
-    v_w = []
-    for g, k in kappa.items():
-        vg = uns[:, col[g]] - k * spl[:, col[g]]
-        v_cols.append(z_vs_ref(vg, e14))
-        v_w.append(float(qc.loc[qc["gene"] == g, "cohens_d_e15_vs_e14"].iloc[0]))
-    if not v_cols:
+    v_genes = list(kappa)
+    if not v_genes:
         raise SystemExit("no genes passed unspliced/κ QC for velocity")
-    v_mat = np.column_stack(v_cols)
-    v_w = np.asarray(v_w, dtype=np.float64)
+    spl_v = np.column_stack([spl[:, col[g]] for g in v_genes])
+    uns_v = np.column_stack([uns[:, col[g]] for g in v_genes])
+    k_vec = np.asarray([kappa[g] for g in v_genes], dtype=np.float64)
+    if smooth_k and smooth_k > 1:
+        pcs = PCA(n_components=min(8, max(2, len(hif_genes))), random_state=0).fit_transform(z_s)
+        spl_v = knn_smooth(spl_v, pcs, smooth_k)
+        uns_v = knn_smooth(uns_v, pcs, smooth_k)
+        print(f"velocity moments: kNN k={smooth_k} on HIF spliced PCA")
+    v_mat = uns_v - spl_v * k_vec
+    gene_scale = np.array([mad(v_mat[persist_ss, j]) for j in range(len(v_genes))], dtype=np.float64)
+    gene_scale = np.where(gene_scale < 1e-8, 1.0, gene_scale)
+    v_w = qc.set_index("gene").loc[v_genes, "cohens_d_e15_vs_e14"].to_numpy(dtype=np.float64)
     v_w = v_w / v_w.sum()
-    v_reox = -(v_mat @ v_w)
+    v_reox = -((v_mat / gene_scale) @ v_w)
+    v_reox = v_reox - float(np.median(v_reox[persist_ss]))
+    n_genes_down = np.sum(v_mat < 0, axis=1).astype(np.int32)
     cycle_coef = (0.0, 0.0)
     if residualize_v_cycle:
         X14 = np.column_stack([s_score[e14] - s0, g2m_score[e14] - g0])
         coef, *_ = np.linalg.lstsq(X14, v_reox[e14], rcond=None)
         cycle_coef = (float(coef[0]), float(coef[1]))
         v_reox = v_reox - coef[0] * (s_score - s0) - coef[1] * (g2m_score - g0)
+        v_reox = v_reox - float(np.median(v_reox[persist_ss]))
     print(f"v_reox cycle residualization: {residualize_v_cycle} b_S={cycle_coef[0]:.3f} b_G2M={cycle_coef[1]:.3f}")
 
     mem_genes = []
@@ -349,9 +391,18 @@ def run_kinetics(
         else np.zeros(e14.size)
     )
 
-    v_cut = float(np.quantile(np.abs(v_reox[e14]), 0.95))
+    v_cut = float(np.quantile(np.abs(v_reox[persist_ss]), 0.95))
     state = classify(sample, theta, v_reox, mem_z, v_cut, t_low, t_high, mem_cut)
-    ctrl = direction_control(sample, v_reox, v_cut)
+    ctrl = direction_control(sample, v_reox, v_cut, theta, t_low, t_high)
+    e14_ind = float(((sample == NORMOXIA) & (state == "inducing")).mean()) if e14.any() else 1.0
+    e15_ind = float(((sample == HYPOXIA) & (state == "inducing")).mean()) if e15.any() else 0.0
+    e14_rev = float(((sample == NORMOXIA) & (state == "reverting")).mean()) if e14.any() else 1.0
+    e15_rev = float(((sample == HYPOXIA) & (state == "reverting")).mean()) if e15.any() else 0.0
+    print(
+        f"E15 vs E14 floors: reverting {e15_rev:.4f} vs {e14_rev:.4f}; "
+        f"inducing {e15_ind:.4f} vs {e14_ind:.4f} (E15 labels kept even if not enriched; "
+        "compare control table)"
+    )
 
     cells = pd.DataFrame(
         {
@@ -363,6 +414,7 @@ def run_kinetics(
             "theta_normoxic": theta,
             "v_reox": v_reox,
             "v_hypoxia": -v_reox,
+            "n_genes_down": n_genes_down,
             "memory_z": mem_z,
             "hypoxia_kinetics_state": state,
         },
@@ -378,10 +430,13 @@ def run_kinetics(
     print("HIF-down used for θ:", ", ".join(hif_genes))
     print("velocity genes:", ", ".join(kappa.keys()))
     print("memory genes:", ", ".join(mem_genes))
-    print(f"θ anchors E14 median={h14:.3f} E15 persistent={h_hyp:.3f}  |v| cut (E14 95%)={v_cut:.3f}")
+    print(
+        f"θ anchors E14 median={h14:.3f} E15 persistent={h_hyp:.3f}  "
+        f"|v| cut (E15 persist 95%)={v_cut:.3f}  persist n={int(persist_ss.sum())}"
+    )
     print(cells.groupby(["sample", "hypoxia_kinetics_state"]).size().unstack(fill_value=0))
     print(cells.groupby("hypoxia_kinetics_state")[["theta_normoxic", "v_reox", "v_hypoxia", "memory_z", "cycle_s"]].median())
-    print("direction control (same |v| gate; E14 inducing = false-positive toward hypoxia):")
+    print("direction control (v_cut from E15 persist; phenotype-constrained counts):")
     print(ctrl.to_string(index=False))
     return cells, qc, ctrl
 
@@ -394,6 +449,11 @@ def attach_to_full(adata, cells: pd.DataFrame) -> None:
         loc = idx.get_indexer(cells.index)
         v[loc] = cells[col].to_numpy(dtype=np.float64)
         adata.obs[col] = v
+    if "n_genes_down" in cells.columns:
+        nd = np.full(n, np.nan, dtype=np.float64)
+        loc = idx.get_indexer(cells.index)
+        nd[loc] = cells["n_genes_down"].to_numpy(dtype=np.float64)
+        adata.obs["n_genes_down"] = nd
     st = np.array(["not_tumor"] * n, dtype=object)
     tumor = adata.obs["cell_group"].astype(str).to_numpy() == TUMOR
     st[tumor] = "tumor_low_umi"
@@ -409,12 +469,13 @@ def main() -> int:
     ap.add_argument("--out-qc", default=str(HERE / "hypoxia_kinetics_gene_qc.csv"))
     ap.add_argument("--out-control", default=str(HERE / "hypoxia_kinetics_control.csv"))
     ap.add_argument("--write-h5ad", action="store_true")
+    ap.add_argument("--smooth-k", type=int, default=30)
     args = ap.parse_args()
 
     import anndata as ad
 
     adata = ad.read_h5ad(args.h5ad)
-    cells, qc, ctrl = run_kinetics(adata, Path(args.genes))
+    cells, qc, ctrl = run_kinetics(adata, Path(args.genes), smooth_k=args.smooth_k)
     Path(args.out_cells).parent.mkdir(parents=True, exist_ok=True)
     cells.to_csv(args.out_cells)
     qc.to_csv(args.out_qc, index=False)
@@ -422,7 +483,6 @@ def main() -> int:
     print(f"wrote {args.out_cells}, {args.out_qc}, {args.out_control}")
     if args.write_h5ad:
         attach_to_full(adata, cells)
-        # cycle scores for non-tumor: fill from a cheap pass on all cells
         adata.write_h5ad(args.h5ad)
         print(f"updated {args.h5ad}")
     return 0

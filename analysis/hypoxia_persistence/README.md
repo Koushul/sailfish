@@ -75,12 +75,16 @@ Tumor only (`cell_group == Tumor`), spliced/unspliced 1-D model. E14S is the nev
 |---|---|
 | QC | Tumor spliced UMI ≥ 5000 (E14 libraries are ~20× smaller than E15) |
 | θ | d-weighted HIF-down genes (log1p size-normalized spliced). Cycle is **not** subtracted from these genes (glycolysis collinear with growth). |
-| κ | `mean(u)/mean(s)` on E14 ∪ most-hypoxic E15 (zeros make median u/s = 0) |
-| v_reox | −(u − κ s), then residualized on S/G2M fit in **E14 only**. Same |v| gate on E14: `inducing` = toward hypoxia (control). |
+| size factor | spliced and unspliced share the **spliced** UMI total (E14 tumor U/S ≈ 2× E15; separate layer CPM invented fake velocity) |
+| κ | `mean(u)/mean(s)` on **E15 persistent** only (lowest 20% θ). E14 is not mixed in. |
+| v_reox | kNN-smooth u,s on HIF spliced PCA, then −(u − κ s) scaled by persist MAD (not E14 SD). Center persist median at 0. |
+| gate | \|v\| cut = E15 persist 95%. Reverting also needs θ ≤ 0.7; inducing needs θ ≥ 0.3. |
 | memory | Muc1 is undetectable; Sod2 z vs E14 |
-| states | Velocity first (`reverting` / `inducing`). Else E14 → `never_hypoxic`. E15: `memory` / `reverted` / `persistent` / `partial`. Low-UMI tumor → `tumor_low_umi`. |
+| states | Phenotype-constrained velocity, then E14 → `never_hypoxic`. E15: `memory` / `reverted` / `persistent` / `partial`. Low-UMI tumor → `tumor_low_umi`. |
 
-Control table: `hypoxia_kinetics_control.csv`. Without GFP, E15 + high θ is **reverted or never-exposed**; E14 is the only clean never-hypoxic class.
+v1 of this script z-scored each gene’s residual to **E14** (shallow, different unspliced capture) and gated on the E14 95% \|v\|. That called a handful of high-unspliced outliers `reverting` and hid any real E15 transients under E14 noise. Control table: `hypoxia_kinetics_control.csv` (constrained + unconstrained tails). Without GFP, E15 + high θ is **reverted or never-exposed**; E14 is the only clean never-hypoxic class.
+
+Corrected E15 QC tumor (n = 2327): reverted 717, persistent 704, partial 505, inducing 277, memory 122, reverting **2**. E14 QC (n = 152): never_hypoxic 131, inducing 21, reverting 0. E15 inducing (12%) is **not** above the E14 floor (14%); those cells are high-θ with u > κ_persist s, the expected low-expression artifact of a persist-only κ. Reverting is 2 cells (0.09%). Active HIF transitions are still absent after the estimator fix.
 
 ## scVelo vs 1-D model (cycle on/off)
 
