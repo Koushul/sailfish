@@ -123,11 +123,13 @@ def main() -> None:
     by_lane = pct_table(tumor, ["sample"])
     by_gate = pct_table(tumor, ["ocm_gate"])
     by_lane_gate = pct_table(tumor, ["sample", "ocm_gate"])
+    by_subtype = pct_table(tumor, ["palak_cell_type"])
     pooled = pct_table(tumor.assign(all="all"), ["all"])
 
     by_lane.to_csv(out / "by_lane.csv", index=False)
     by_gate.to_csv(out / "by_gate.csv", index=False)
     by_lane_gate.to_csv(out / "by_lane_gate.csv", index=False)
+    by_subtype.to_csv(out / "by_palak_subtype.csv", index=False)
     pooled.to_csv(out / "pooled.csv", index=False)
     tumor.to_csv(out / "tumor_qc.csv", index=False)
 
@@ -233,6 +235,25 @@ def main() -> None:
         "Tumor 1-D persist vs revert: E15S vs A223",
         out / "stacked_vs_e15.png",
     )
+    sub_plot = by_subtype.sort_values("n_qc", ascending=False).copy()
+    sub_plot["label"] = sub_plot["palak_cell_type"].str.replace("Tumor ", "", regex=False)
+    plot_stacked(
+        sub_plot,
+        "A223 Tumor 1-D states by Palak subtype",
+        out / "stacked_by_subtype.png",
+    )
+
+    repo_results = Path("/ix1/ylee/shared/sailfish/analysis/a223_tumor_kinetics/results")
+    repo_results.mkdir(parents=True, exist_ok=True)
+    for name, df in (
+        ("by_lane.csv", by_lane),
+        ("by_gate.csv", by_gate),
+        ("by_lane_gate.csv", by_lane_gate),
+        ("by_palak_subtype.csv", by_subtype),
+        ("pooled.csv", pooled),
+        ("compare_e15_theta_only.csv", compare),
+    ):
+        df.to_csv(repo_results / name, index=False)
 
     lines = [
         "# A223 tumor 1-D hypoxia persistence",
@@ -259,6 +280,7 @@ def main() -> None:
     print(compare.to_string(index=False))
     print(by_lane.to_string(index=False))
     print(by_gate.to_string(index=False))
+    print(by_subtype.to_string(index=False))
 
 
 if __name__ == "__main__":
