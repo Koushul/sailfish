@@ -172,47 +172,61 @@ def annotate(adata: ad.AnnData) -> pd.DataFrame:
     return scores
 
 
-def e14_tumor_calibration(mapping: dict[str, str], hif_genes: list[str], weights: np.ndarray) -> dict:
+def e14_calibration(mapping: dict[str, str], hif_genes: list[str], weights: np.ndarray) -> dict:
     ref = ad.read_h5ad(E14E15)
     set_symbols(ref, mapping)
     lib = np.asarray(ref.layers["spliced"].sum(axis=1), dtype=np.float64).ravel()
-    tumor = (ref.obs["cell_group"].astype(str).to_numpy() == "Tumor") & (lib >= TUMOR_MIN_UMI)
     sample = ref.obs["sample"].astype(str).to_numpy()
-    e14 = tumor & (sample == "E14S")
-    e15 = tumor & (sample == "E15S")
-    neu = (ref.obs["cell_group"].astype(str).to_numpy() == "neutrophil") & (lib >= NEU_MIN_UMI)
+    group = ref.obs["cell_group"].astype(str).to_numpy()
+    tumor = (group == "Tumor") & (lib >= TUMOR_MIN_UMI)
+    neu = (group == "neutrophil") & (lib >= NEU_MIN_UMI)
+    e14_t = tumor & (sample == "E14S")
+    e15_t = tumor & (sample == "E15S")
+    e14_n = neu & (sample == "E14S")
+    e15_n = neu & (sample == "E15S")
     var_pos = {str(g): i for i, g in enumerate(ref.var_names.astype(str))}
     missing = [g for g in hif_genes if g not in var_pos]
     if missing:
         raise SystemExit(f"E14/E15 missing HIF genes: {missing}")
     cols = [var_pos[g] for g in hif_genes]
-    spl = size_normalize(csr_cols(ref.layers["spliced"], cols), lib)
-    log_s = np.log1p(spl)
-    mu = log_s[e14].mean(axis=0)
-    sd = log_s[e14].std(axis=0)
-    sd = np.where(sd < 1e-12, 1.0, sd)
-    h = ((log_s - mu) / sd) @ weights
-    h_lo = float(np.median(h[e14]))
-    h15q = float(np.quantile(h[e15], 0.75))
-    hi = e15 & (h >= h15q)
-    h_hi = float(np.median(h[hi])) if hi.any() else float(np.median(h[e15]))
-    theta = logistic_theta(h, h_lo, h_hi)
+    log_s = np.log1p(size_normalize(csr_cols(ref.layers["spliced"], cols), lib))
+
+    def pack(ref_mask, hyp_mask):
+        mu = log_s[ref_mask].mean(axis=0)
+        sd = log_s[ref_mask].std(axis=0)
+        sd = np.where(sd < 1e-12, 1.0, sd)
+        h = ((log_s - mu) / sd) @ weights
+        h_lo = float(np.median(h[ref_mask]))
+        q = float(np.quantile(h[hyp_mask], 0.75))
+        hi = hyp_mask & (h >= q)
+        h_hi = float(np.median(h[hi])) if hi.any() else float(np.median(h[hyp_mask]))
+        th = logistic_theta(h, h_lo, h_hi)
+        return mu, sd, h_lo, h_hi, th
+
+    mu, sd, h_lo, h_hi, theta_t = pack(e14_t, e15_t)
+    mu_n, sd_n, h_lo_n, h_hi_n, theta_n = pack(e14_n, e15_n)
     e15_state = ref.obs["hypoxia_kinetics_state"].astype(str).to_numpy()
     cal = {
         "mu": mu,
         "sd": sd,
         "h_lo": h_lo,
         "h_hi": h_hi,
-        "n_e14_tumor": int(e14.sum()),
-        "n_e15_tumor": int(e15.sum()),
+        "mu_neu": mu_n,
+        "sd_neu": sd_n,
+        "h_lo_neu": h_lo_n,
+        "h_hi_neu": h_hi_n,
+        "n_e14_tumor": int(e14_t.sum()),
+        "n_e15_tumor": int(e15_t.sum()),
+        "n_e14_neu": int(e14_n.sum()),
+        "n_e15_neu": int(e15_n.sum()),
         "e15_tumor_theta": {
-            "persistent": float(np.median(theta[e15 & (e15_state == "persistent")])) if np.any(e15 & (e15_state == "persistent")) else None,
-            "reverted": float(np.median(theta[e15 & (e15_state == "reverted")])) if np.any(e15 & (e15_state == "reverted")) else None,
+            "persistent": float(np.median(theta_t[e15_t & (e15_state == "persistent")])) if np.any(e15_t & (e15_state == "persistent")) else None,
+            "reverted": float(np.median(theta_t[e15_t & (e15_state == "reverted")])) if np.any(e15_t & (e15_state == "reverted")) else None,
         },
-        "e15_neu_theta_median": float(np.median(theta[neu & (sample == "E15S")])) if np.any(neu & (sample == "E15S")) else None,
-        "e14_neu_theta_median": float(np.median(theta[neu & (sample == "E14S")])) if np.any(neu & (sample == "E14S")) else None,
-        "e15_neu_persistent_frac": float(np.mean(theta[neu & (sample == "E15S")] <= T_LOW)) if np.any(neu & (sample == "E15S")) else None,
-        "e15_neu_reverted_frac": float(np.mean(theta[neu & (sample == "E15S")] >= T_HIGH)) if np.any(neu & (sample == "E15S")) else None,
+        "e15_neu_persistent_frac": float(np.mean(theta_n[e15_n] <= T_LOW)),
+        "e15_neu_reverted_frac": float(np.mean(theta_n[e15_n] >= T_HIGH)),
+        "e15_neu_theta_median": float(np.median(theta_n[e15_n])),
+        "e14_neu_theta_median": float(np.median(theta_n[e14_n])),
     }
     del ref
     return cal
@@ -224,20 +238,23 @@ def score_hif(adata: ad.AnnData, scores: pd.DataFrame, mapping: dict[str, str]) 
     hif_genes = [g for g in qc.loc[use, "gene"].astype(str) if g in set(adata.var_names.astype(str))]
     w = qc.set_index("gene").loc[hif_genes, "cohens_d_e15_vs_e14"].clip(lower=0).to_numpy(dtype=np.float64)
     w = w / w.sum()
-    cal = e14_tumor_calibration(mapping, hif_genes, w)
+    cal = e14_calibration(mapping, hif_genes, w)
     var_pos = {str(g): i for i, g in enumerate(adata.var_names.astype(str))}
     cols = [var_pos[g] for g in hif_genes]
     lib_s = scores["spliced_umi"].to_numpy()
     spl = size_normalize(csr_cols(adata.layers["spliced"], cols), lib_s)
     log_s = np.log1p(spl)
-    z = (log_s - cal["mu"]) / cal["sd"]
-    h = z @ w
+    h = ((log_s - cal["mu"]) / cal["sd"]) @ w
     theta = logistic_theta(h, cal["h_lo"], cal["h_hi"])
-    state = theta_state(theta)
+    h_n = ((log_s - cal["mu_neu"]) / cal["sd_neu"]) @ w
+    theta_n = logistic_theta(h_n, cal["h_lo_neu"], cal["h_hi_neu"])
+    state = theta_state(theta_n)
 
     out = scores.copy()
     out["hif_score"] = h
     out["theta_normoxic"] = theta
+    out["hif_score_neu_scale"] = h_n
+    out["theta_neu_scale"] = theta_n
     out["hif_state"] = state
     out.loc[lib_s < NEU_MIN_UMI, "hif_state"] = "low_umi"
 
@@ -262,11 +279,15 @@ def score_hif(adata: ad.AnnData, scores: pd.DataFrame, mapping: dict[str, str]) 
     gene_df = pd.DataFrame(gene_rows)
     meta = {
         "hif_genes": hif_genes,
-        "calibration": "E14S Tumor QC (spliced UMI>=5000); θ logistic from E14 median vs E15 HIF-high quartile",
+        "calibration": "Neutrophil states use E14 neutrophil μ/σ and E14/E15 neu logistic anchors (same genes as Tumor θ). Tumor-scale θ is also stored.",
         "h_lo_e14_tumor": cal["h_lo"],
         "h_hi_e15_tumor": cal["h_hi"],
+        "h_lo_e14_neu": cal["h_lo_neu"],
+        "h_hi_e15_neu": cal["h_hi_neu"],
         "n_e14_tumor": cal["n_e14_tumor"],
         "n_e15_tumor": cal["n_e15_tumor"],
+        "n_e14_neu": cal["n_e14_neu"],
+        "n_e15_neu": cal["n_e15_neu"],
         "e15_tumor_theta": cal["e15_tumor_theta"],
         "e15_neu_theta_median": cal["e15_neu_theta_median"],
         "e14_neu_theta_median": cal["e14_neu_theta_median"],
@@ -281,6 +302,8 @@ def score_hif(adata: ad.AnnData, scores: pd.DataFrame, mapping: dict[str, str]) 
 
 
 def auroc_hif(cells: pd.DataFrame, group: str, pos="hypoxia_plus", neg="DN") -> dict:
+    score_col = "hif_score_neu_scale" if group == "neutrophil" else "hif_score"
+    theta_col = "theta_neu_scale" if group == "neutrophil" else "theta_normoxic"
     min_umi = NEU_MIN_UMI if group == "neutrophil" else TUMOR_MIN_UMI
     sub = cells[cells["cell_group"].eq(group) & cells["spliced_umi"].ge(min_umi)]
     a = sub[sub["sample_id"].eq(pos)]
@@ -291,13 +314,13 @@ def auroc_hif(cells: pd.DataFrame, group: str, pos="hypoxia_plus", neg="DN") -> 
         "n_pos": int(len(a)),
         "n_neg": int(len(b)),
         "auroc_hif": None,
-        "median_theta_pos": float(a["theta_normoxic"].median()) if len(a) else None,
-        "median_theta_neg": float(b["theta_normoxic"].median()) if len(b) else None,
+        "median_theta_pos": float(a[theta_col].median()) if len(a) else None,
+        "median_theta_neg": float(b[theta_col].median()) if len(b) else None,
     }
     if len(a) < 8 or len(b) < 8:
         return out
     y = np.r_[np.ones(len(a)), np.zeros(len(b))]
-    s = np.r_[a["hif_score"].to_numpy(), b["hif_score"].to_numpy()]
+    s = np.r_[a[score_col].to_numpy(), b[score_col].to_numpy()]
     out["auroc_hif"] = float(roc_auc_score(y, s))
     return out
 
@@ -325,19 +348,21 @@ def plot_figures(cells: pd.DataFrame, outdir: Path) -> None:
     ax.set_ylabel("fraction of neutrophils")
     ax.set_ylim(0, 1)
     ax.legend(frameon=False)
-    ax.set_title("Neutrophil HIF θ vs OCM stain")
+    ax.set_title("Neutrophil HIF θ (E14 neutrophil scale)")
     fig.tight_layout()
     fig.savefig(outdir / "neu_state_by_ocm.png", dpi=160)
     plt.close(fig)
 
     fig, ax = plt.subplots(figsize=(6.8, 4.2))
     data, labs, cols = [], [], []
-    for grp, df, c in (("neu", neu, "#1b9e77"), ("tumor", tum, "#d95f02")):
-        for s in order:
-            v = df.loc[df["sample_id"].eq(s), "theta_normoxic"].dropna().to_numpy()
-            data.append(v)
-            labs.append(f"{grp}\n{s.replace('_plus', '+')}")
-            cols.append(c)
+    for s in order:
+        data.append(neu.loc[neu["sample_id"].eq(s), "theta_neu_scale"].dropna().to_numpy())
+        labs.append(f"neu\n{s.replace('_plus', '+')}")
+        cols.append("#1b9e77")
+    for s in order:
+        data.append(tum.loc[tum["sample_id"].eq(s), "theta_normoxic"].dropna().to_numpy())
+        labs.append(f"tumor\n{s.replace('_plus', '+')}")
+        cols.append("#d95f02")
     bp = ax.boxplot(data, tick_labels=labs, showfliers=False, patch_artist=True)
     for patch, c in zip(bp["boxes"], cols):
         patch.set_facecolor(c)
@@ -345,7 +370,7 @@ def plot_figures(cells: pd.DataFrame, outdir: Path) -> None:
     ax.axhline(T_LOW, color="#b2182b", ls="--", lw=0.8)
     ax.axhline(T_HIGH, color="#2166ac", ls="--", lw=0.8)
     ax.set_ylabel("θ (high = HIF-low / reverted-like)")
-    ax.set_title("Transferred Tumor HIF θ")
+    ax.set_title("Neu-scale θ (green) vs Tumor-scale θ (orange)")
     fig.tight_layout()
     fig.savefig(outdir / "theta_neu_vs_tumor.png", dpi=160)
     plt.close(fig)
