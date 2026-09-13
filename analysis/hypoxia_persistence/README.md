@@ -50,7 +50,7 @@ If GFP (or ODD-GFP ADT) exists as an obs column:
 
 ```bash
 python analysis/hypoxia_persistence/hypoxia_states.py \
-  --h5ad /path/to/cells.h5ad \
+  --h5ad /ix1/ylee/kor11/MC38/E14SE15S/E14SE15S_gex_adt_placed.h5ad \
   --gfp-obs GFP \
   --out analysis/hypoxia_persistence/hypoxia_states.csv
 ```
@@ -61,6 +61,5 @@ python analysis/hypoxia_persistence/hypoxia_states.py \
 2. Logistic regression: E14 vs E15 cells in the **top quartile** of Hallmark hypoxia → `P_hypoxic`.
 3. 3-component GMM on the Hallmark axis within the data; E15 low / mid / high → `reverted` / `partial` / `persistent`. E14 → `never_hypoxic`.
 4. Optional GFP gate: GFP− E15 cells are `unlabeled_*` instead of reverted/persistent.
-5. Overlap table vs Wagner `hypoxia_state` when barcodes match.
 
-Outputs: `hypoxia_states.csv` plus a printed confusion table.
+Outputs: `hypoxia_states.csv`. Only input is `E14SE15S_gex_adt_placed.h5ad`.

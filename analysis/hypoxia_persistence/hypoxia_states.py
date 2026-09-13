@@ -26,7 +26,6 @@ HERE = Path(__file__).resolve().parent
 GENESET_DIR = HERE / "genesets"
 DEFAULT_H5AD = Path("/ix1/ylee/kor11/MC38/E14SE15S/E14SE15S_gex_adt_placed.h5ad")
 DEFAULT_ID2NAME = Path("/ix1/ylee/Palak/MC38/genesets/gene_id_to_name.tsv")
-DEFAULT_WAGNER = Path("/ix1/ylee/shared/external/data/WagnerCollab/mc38_velocity.h5ad")
 NORMOXIA_SAMPLE = "E14S"
 HYPOXIA_SAMPLE = "E15S"
 
@@ -156,28 +155,6 @@ def classify(
     return df
 
 
-def compare_wagner(df: pd.DataFrame, wagner_h5ad: Path) -> pd.DataFrame | None:
-    if not wagner_h5ad.is_file():
-        return None
-    import anndata as ad
-
-    w = ad.read_h5ad(wagner_h5ad, backed="r")
-    wobs = w.obs[["barcodes", "sample", "hypoxia_state", "hypoxia_state_gmm", "P_normoxic", "hypoxia_score"]].copy()
-    wobs["join"] = wobs["barcodes"].astype(str) + "-" + wobs["sample"].astype(str)
-    left = df.reset_index().rename(columns={"index": "obs_name"})
-    if "barcodes" in left.columns:
-        left["join"] = left["barcodes"].astype(str) + "-" + left["sample"].astype(str)
-    else:
-        left["join"] = left["obs_name"].astype(str)
-    m = left.merge(wobs, on="join", how="inner", suffixes=("", "_w"))
-    print(f"Wagner barcode overlap: {len(m)} / {len(df)}")
-    if m.empty:
-        return None
-    ct = pd.crosstab(m["hypoxia_state"], m["hypoxia_state_w"])
-    print("new state vs Wagner hypoxia_state:\n", ct)
-    return m
-
-
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--h5ad", default=str(DEFAULT_H5AD))
@@ -185,7 +162,6 @@ def main() -> int:
     ap.add_argument("--gfp-obs", default=None, help="obs column with GFP (or HIF reporter) intensity")
     ap.add_argument("--gfp-min", type=float, default=None, help="threshold for GFP+ (default: median of nonzero)")
     ap.add_argument("--n-gmm", type=int, default=3, choices=(2, 3))
-    ap.add_argument("--wagner", default=str(DEFAULT_WAGNER), help="optional prior labels for overlap table")
     ap.add_argument("--out", default=str(HERE / "hypoxia_states.csv"))
     args = ap.parse_args()
 
@@ -214,7 +190,6 @@ def main() -> int:
     print(f"wrote {out} n={len(df)}")
     print(df.groupby(["sample", "hypoxia_state"]).size().unstack(fill_value=0))
     print(df.groupby("hypoxia_state")[["hallmark_hypoxia", "P_hypoxic"]].median())
-    compare_wagner(df, Path(args.wagner))
     return 0
 
 
