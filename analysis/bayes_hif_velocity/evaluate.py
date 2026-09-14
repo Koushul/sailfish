@@ -52,6 +52,7 @@ def evaluate_fit(data, truth: dict, est: dict) -> dict[str, float]:
     pheno = est["pheno"]
     p_state = est["p_state"]
     gate = phenotype_calls(data.theta, data.exposed, force_control_reverted=False)
+    gate_forced = phenotype_calls(data.theta, data.exposed, force_control_reverted=True)
     mid = partial | t_out
 
     return {
@@ -72,6 +73,7 @@ def evaluate_fit(data, truth: dict, est: dict) -> dict[str, float]:
         "mean_p_toward_inducing": float(est["p_toward"][t_in].mean()) if t_in.any() else float("nan"),
         "fp_control": float(np.mean(np.isin(calls[ctrl], FLUX_STATES))),
         "ctrl_persist_theta": float(np.mean(gate[ctrl] == "persistent")),
+        "ctrl_persist_theta_forced": float(np.mean(gate_forced[ctrl] == "persistent")),
         "recall_partial": _rate(calls, partial, "partial"),
         "recall_transitioning_out": _rate(calls, t_out, "transitioning_out"),
         "recall_transitioning_in": _rate(calls, t_in, "transitioning_in"),

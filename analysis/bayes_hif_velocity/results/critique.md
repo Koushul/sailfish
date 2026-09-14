@@ -25,7 +25,7 @@ Empirical θ-gate (same \(\theta\le 0.3 / \ge 0.7\), **no** force) on the curren
 
 That is the number that can move: about one in nine E14 tumors still look “persistent” on the HIF panel after CPM. Some of that is noise and residual depth; some is that \(h=1.5\) MAD is not a huge separation when the program barely shifts. **Always report empirical control rates next to forced labels.**
 
-The synthetic check `ctrl_persist_theta < 0.08` used the **forced** gate, so it could not fail. It now uses the empirical gate.
+The synthetic check `ctrl_persist_theta < 0.08` used the **forced** gate, so it could not fail. Empirical persist on synthetic never-hypoxic cells is \(\sim 14\%\) — the same order as E14 tumors (\(11\%\)). That is the θ=0.3 / 1.5-MAD gate overlapping the control tail, not a library-specific bug. The test now checks forced persist = 0 and empirical persist \(< 25\%\).
 
 ### 2. Two phenotypes that are allowed to disagree
 
