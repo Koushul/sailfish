@@ -1,10 +1,11 @@
 # Bayesian 1-D hypoxia velocity
 
-See `MODEL.md`. Current analysis: E14S tumors as a single cohort (`fit_e14s_tumors.py`).
+See `MODEL.md`. Current analysis: each library as its own single-cohort tumor fit (`fit_e14s_tumors.py`, `fit_e15s_tumors.py`). Do not share cells or parameters across samples.
 
 ```bash
 /ix1/ylee/kor11/tools/af_tutorial/conda_env/bin/python analysis/bayes_hif_velocity/test_synthetic.py
 /ix1/ylee/kor11/tools/af_tutorial/conda_env/bin/python analysis/bayes_hif_velocity/fit_e14s_tumors.py
+/ix1/ylee/kor11/tools/af_tutorial/conda_env/bin/python analysis/bayes_hif_velocity/fit_e15s_tumors.py
 ```
 
 Circularity audit: `results/critique.md`. A223 E27/E29 are fitted per chemistry with a small DN control; persist gates are poorly identified.
