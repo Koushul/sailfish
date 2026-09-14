@@ -58,3 +58,28 @@ In A223 that collinearity is spatial/niche, not “cycling = HIF-high”: Palak 
 | A223 | drop genes with cycle R²≥0.1 | 45.4% | 40.3% | 0.23 |
 
 Dropped genes: `Ldha`, `Pgk1`, `Eno1`, `Angptl4` (the glycolytic HIF core, not a pure cycle list). That jump to 45% persistent is deleting the axis, not “correcting cycle.” Residualizing S+G2M on A223 only moves persist 28% → 33%; every default-persistent cell stays persistent. Default remains **no cycle correction on θ**.
+
+## Combining vs separating neutrophils
+
+Same 14 HIF-down genes. **Separate** = Tumor θ calibrated on E14 Tumor (UMI ≥ 5000), neutrophil θ on E14 neutrophils (UMI ≥ 1500). **Combined** = one μ/σ and logistic anchors from E14 Tumor ∪ neutrophils.
+
+Neutrophils are only **3.8%** of A223 QC Tumor+neu cells (388 / 10,079), so dumping them into the tumor report barely moves the headline percentage. What *does* move the numbers is putting both lineages on one axis.
+
+| cells | calibration | n | persistent | reverted |
+|--------|-------------|--:|----------:|---------:|
+| A223 Tumor | separate (default) | 9691 | **28.2%** | 56.6% |
+| A223 neutrophil | separate (neu E14) | 388 | **49.0%** | 42.3% |
+| A223 Tumor | combined Tumor+neu E14 | 9691 | 35.4% | 43.1% |
+| A223 neutrophil | combined Tumor+neu E14 | 388 | 30.4% | 57.5% |
+| A223 Tumor+neu | pooled on Tumor axis | 10079 | 28.2% | 57.0% |
+| A223 Tumor+neu | pooled on neu axis | 10079 | 66.3% | 21.6% |
+| A223 Tumor+neu | pooled on combined axis | 10079 | 35.2% | 43.7% |
+| A223 Tumor+neu | separate θ, then concat | 10079 | 29.0% | 56.1% |
+
+E15S is the same pattern: Tumor 26.7% persist separate vs 39.6% if you recalibrate on Tumor+neu; neutrophils 20.3% separate vs 9.8% on the combined axis. E14 combined anchors are neutrophil-heavy (363 neu vs 152 Tumor), so tumors look more HIF-high.
+
+Keep lineages **separate**. Do not score tumors on the neutrophil axis.
+
+```bash
+/ix1/ylee/kor11/tools/af_tutorial/conda_env/bin/python analysis/a223_tumor_kinetics/lineage_combine.py
+```
