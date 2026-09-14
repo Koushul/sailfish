@@ -50,7 +50,10 @@ E14 tumors n=152 vs E15 n=2327, but WLS gives **equal total weight** to control 
 
 ### 6. Wagner is not an independent experiment
 
-`WagnerCollab/mc38_velocity.h5ad` is the **same** E14S/E15S libraries with different cell typing and Ensembl gene keys. Existing `hypoxia_state` there calls most E15 Tumor cells persistent (cluster + old score). Using that column as truth would be circular. The fit is a **pipeline replicate** (gene_name map, cluster union Tumor ∪ Hypoxic Tumor ∪ Tumor Proliferating). “Hypoxic Tumor” on E14 (n=299) is a cluster name, not exposure.
+`WagnerCollab/mc38_velocity.h5ad` is the **same** E14S/E15S libraries with different cell typing and Ensembl gene keys. Existing `hypoxia_state` there calls 91% of E15 Tumor cells persistent. Using that column as truth would be circular (agreement with the new θ-gate is 23%).
+
+The fit is a **pipeline replicate**. Empirical control persist matches the placed object (11.5% vs 11.2%). Exposed persist does not (20% vs 7.6%), and neither does depth (UMI ratio 1.01 vs 4.8). Persist after hypoxia is not a stable number across the two objects. “Hypoxic Tumor” on E14 (n=299 before UMI filter) is a cluster name, not exposure.
+
 
 ### 7. A223 cannot identify never-hypoxic persist
 
