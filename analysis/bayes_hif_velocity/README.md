@@ -1,13 +1,10 @@
 # Bayesian 1-D hypoxia velocity
 
-See `MODEL.md` for the HIF-α panel, spliced factor + GMM phenotype, ZINB lag, and Laplace spike-slab flux posteriors. Gene list: `hif_targets.tsv`.
+See `MODEL.md`. Current analysis: E14S tumors as a single cohort (`fit_e14s_tumors.py`).
 
 ```bash
 /ix1/ylee/kor11/tools/af_tutorial/conda_env/bin/python analysis/bayes_hif_velocity/test_synthetic.py
-/ix1/ylee/kor11/tools/af_tutorial/conda_env/bin/python analysis/bayes_hif_velocity/benchmark_synthetic.py
-/ix1/ylee/kor11/tools/af_tutorial/conda_env/bin/python analysis/bayes_hif_velocity/fit_e14e15.py
-/ix1/ylee/kor11/tools/af_tutorial/conda_env/bin/python analysis/bayes_hif_velocity/fit_dataset.py --config analysis/bayes_hif_velocity/datasets/wagner.json
-/ix1/ylee/kor11/tools/af_tutorial/conda_env/bin/python analysis/bayes_hif_velocity/fit_a223.py
+/ix1/ylee/kor11/tools/af_tutorial/conda_env/bin/python analysis/bayes_hif_velocity/fit_e14s_tumors.py
 ```
 
 Circularity audit: `results/critique.md`. A223 E27/E29 are fitted per chemistry with a small DN control; persist gates are poorly identified.

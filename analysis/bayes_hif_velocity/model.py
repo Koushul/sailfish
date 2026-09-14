@@ -105,8 +105,15 @@ def cycle_design(data: Data) -> np.ndarray:
     return x - x.mean(axis=0, keepdims=True)
 
 
+def has_contrast(exposed: np.ndarray) -> bool:
+    e = np.asarray(exposed)
+    return bool(np.any(e < 0.5) and np.any(e > 0.5))
+
+
 def residualize_cycle(v: np.ndarray, data: Data) -> np.ndarray:
     x = cycle_design(data)
+    if float(np.max(np.abs(x))) < 1e-12:
+        return v
     coef, _, _, _ = np.linalg.lstsq(x, v, rcond=None)
     return v - x @ coef
 
@@ -119,8 +126,10 @@ def mix_params(p: dict) -> tuple[np.ndarray, float, float, float]:
 def xi_from(p: dict, data: Data) -> tuple[np.ndarray, float]:
     sigma = float(np.exp(np.clip(p["log_sigma_v"][0], -3.0, 0.5)))
     raw = residualize_cycle(sigma * p["xi_hat"], data)
-    ctrl = data.exposed < 0.5
-    return raw - float(raw[ctrl].mean()), sigma
+    if has_contrast(data.exposed):
+        ctrl = data.exposed < 0.5
+        return raw - float(raw[ctrl].mean()), sigma
+    return raw - float(raw.mean()), sigma
 
 
 def mixture_logp(xi: np.ndarray, pi: np.ndarray, mu: float, t0: float, t1: float):
@@ -139,7 +148,10 @@ def mu_from(p: dict, data: Data, xi: np.ndarray):
     kappa = np.exp(np.clip(p["log_kappa"], -8.0, 8.0))
     rho0 = np.exp(np.clip(p["log_rho0"], -4.0, 4.0))
     s_norm = (data.S + 0.5) / data.L[:, None]
-    log_rho = np.log(rho0)[None, :] * (1.0 - data.exposed)[:, None]
+    if has_contrast(data.exposed):
+        log_rho = np.log(rho0)[None, :] * (1.0 - data.exposed)[:, None]
+    else:
+        log_rho = 0.0
     log_mu = (
         np.log(data.L)[:, None]
         + log_rho
@@ -156,21 +168,18 @@ def mu_from(p: dict, data: Data, xi: np.ndarray):
 def spliced_z(data: Data) -> np.ndarray:
     cpm = 1e4 * data.S / np.clip(data.L, 1.0, None)[:, None]
     log1p_s = np.log1p(cpm)
-    ctrl = data.exposed < 0.5
-    mu0 = log1p_s[ctrl].mean(axis=0)
-    sd_std = log1p_s[ctrl].std(axis=0)
-    mad = 1.4826 * np.median(np.abs(log1p_s[ctrl] - mu0), axis=0)
+    ref = data.exposed < 0.5 if has_contrast(data.exposed) else np.ones(data.exposed.size, dtype=bool)
+    mu0 = log1p_s[ref].mean(axis=0)
+    sd_std = log1p_s[ref].std(axis=0)
+    mad = 1.4826 * np.median(np.abs(log1p_s[ref] - mu0), axis=0)
     sd0 = np.clip(np.maximum(sd_std, mad), 0.2, None)
     return np.clip((log1p_s - mu0) / sd0, -6.0, 6.0)
 
 
 def library_covariate(data: Data) -> np.ndarray:
-    """Within-sample log library size, scaled by control SD.
-
-    Between-sample depth is already removed by CPM. This term only absorbs
-    leftover within-E14 / within-E15 capture so h is not a depth score.
-    """
     ll = np.log(np.clip(data.L, 1.0, None))
+    if not has_contrast(data.exposed):
+        return (ll - ll.mean()) / (float(ll.std()) + 1e-6)
     ctrl = data.exposed < 0.5
     out = np.empty(ll.shape[0], dtype=np.float64)
     out[ctrl] = ll[ctrl] - ll[ctrl].mean()
@@ -182,6 +191,8 @@ def library_covariate(data: Data) -> np.ndarray:
 
 
 def _balanced_cell_weights(exposed: np.ndarray) -> np.ndarray:
+    if not has_contrast(exposed):
+        return np.ones(exposed.size, dtype=np.float64)
     ctrl = exposed < 0.5
     n = exposed.size
     n0 = max(int(ctrl.sum()), 1)
@@ -198,11 +209,11 @@ def _logit(p: float) -> float:
 
 
 def theta_from_control_h(h: np.ndarray, exposed: np.ndarray) -> dict:
-    """Map control-MAD-scaled h so typical never-hypoxic cells are HIF-off.
+    """Map MAD-scaled h to θ. h=0 is the reference-cell median.
 
-    After CPM and within-sample depth residualization, h=0 is the control
-    median. theta=0.88 there. Persistent (theta=0.3) is 1.5 control MADs
-    above that typical off level, not the noisiest control cell (q99).
+    θ=0.88 at h=0; persist (θ=0.3) is 1.5 MADs above that typical cell.
+    In a two-sample fit the reference is the r=0 arm; in a single cohort
+    it is this cohort's own median (relative ranks, not an external control).
     """
     del exposed
     h_on = 1.5
@@ -213,10 +224,11 @@ def theta_from_control_h(h: np.ndarray, exposed: np.ndarray) -> dict:
     return {"theta": theta, "h_lo": 0.0, "h_hi": h_on, "h0": h0, "tau": tau}
 
 
-def hypoxia_factor(data: Data, n_iter: int = 50) -> dict:
+def hypoxia_factor(data: Data, n_iter: int = 50, use_cycle: bool = True) -> dict:
     z = spliced_z(data)
     n, g = z.shape
-    cs, cg = data.cycle_s, data.cycle_g2m
+    cs = data.cycle_s if use_cycle else np.zeros(n)
+    cg = data.cycle_g2m if use_cycle else np.zeros(n)
     corr = np.array(
         [abs(np.corrcoef(z[:, j], cs)[0, 1]) if z[:, j].std() > 1e-8 else 1.0 for j in range(g)]
     )
@@ -248,32 +260,40 @@ def hypoxia_factor(data: Data, n_iter: int = 50) -> dict:
             beta = beta * scale
     beta = np.clip(beta, 0.0, 8.0)
     ctrl = data.exposed < 0.5
-    if h[ctrl].mean() > h[~ctrl].mean():
+    if has_contrast(data.exposed) and h[ctrl].mean() > h[~ctrl].mean():
         h = -h
     h_als = h.copy()
-    h = h - float(np.median(h[ctrl]))
-    mad0 = float(np.median(np.abs(h[ctrl]))) + 1e-6
+    ref = ctrl if has_contrast(data.exposed) else np.ones(n, dtype=bool)
+    h = h - float(np.median(h[ref]))
+    mad0 = float(np.median(np.abs(h[ref]))) + 1e-6
     h = h / (1.4826 * mad0)
     h = np.clip(h, -8.0, 8.0)
     mapped = theta_from_control_h(h, data.exposed)
     ll = np.log(np.clip(data.L, 1.0, None))
     mapped["corr_h_logL"] = float(np.corrcoef(h, ll)[0, 1]) if h.size > 2 else 0.0
+    mapped["corr_h_cycle_s"] = float(np.corrcoef(h, data.cycle_s)[0, 1]) if h.size > 2 else 0.0
     mapped["lib"] = lib
+    mapped["mad0"] = mad0
     return {"h": h, "h_als": h_als, "beta": beta, **mapped}
 
 
 def phenotype_probs(h: np.ndarray, exposed: np.ndarray, n_iter: int = 40) -> np.ndarray:
+    contrast = has_contrast(exposed)
     ctrl = exposed < 0.5
-    mu = np.array(
-        [float(np.median(h[ctrl])), float(np.median(h)), float(np.quantile(h[~ctrl], 0.85))]
-    )
+    if contrast:
+        mu = np.array(
+            [float(np.median(h[ctrl])), float(np.median(h)), float(np.quantile(h[~ctrl], 0.85))]
+        )
+    else:
+        mu = np.quantile(h, [0.2, 0.5, 0.8]).astype(np.float64)
     mu.sort()
     var = np.full(3, max(float(h.var()), 0.05))
     pi = np.array([0.4, 0.3, 0.3])
     boost = np.array([8.0, 1.0, 0.4])
     for _ in range(n_iter):
         log_comp = np.log(pi + EPS) - 0.5 * np.log(2 * np.pi * var) - 0.5 * (h[:, None] - mu) ** 2 / var
-        log_comp[ctrl] += np.log(boost)
+        if contrast:
+            log_comp[ctrl] += np.log(boost)
         r = softmax(log_comp, axis=1)
         nk = np.clip(r.sum(axis=0), 1e-3, None)
         pi = nk / nk.sum()
@@ -286,8 +306,8 @@ def phenotype_probs(h: np.ndarray, exposed: np.ndarray, n_iter: int = 40) -> np.
     return np.column_stack([resp[:, 2], resp[:, 1], resp[:, 0]])
 
 
-def annotate_phenotype(data: Data) -> dict:
-    fac = hypoxia_factor(data)
+def annotate_phenotype(data: Data, use_cycle: bool = True) -> dict:
+    fac = hypoxia_factor(data, use_cycle=use_cycle)
     data.theta = fac["theta"]
     p_pheno = phenotype_probs(fac["h_als"], data.exposed)
     return {**fac, "p_pheno": p_pheno}
@@ -305,10 +325,20 @@ def objective_and_grad(vec: np.ndarray, data: Data) -> tuple[float, np.ndarray]:
     loss = nll + npri
 
     g_xi = (dlogmu * lam[None, :]).sum(axis=1)
-    ctrl = data.exposed < 0.5
-    n0 = float(ctrl.sum())
-    g_xi = g_xi - (g_xi[ctrl].sum() / n0) * ctrl.astype(np.float64)
+    if has_contrast(data.exposed):
+        ctrl = data.exposed < 0.5
+        n0 = float(ctrl.sum())
+        g_xi = g_xi - (g_xi[ctrl].sum() / n0) * ctrl.astype(np.float64)
+    else:
+        g_xi = g_xi - g_xi.mean()
     g_xi = residualize_cycle(g_xi, data)
+
+    if has_contrast(data.exposed):
+        g_c_r = (dlogmu * data.exposed[:, None]).sum(axis=0) - p["c_r"] / (0.3**2)
+        g_rho = (dlogmu * (1.0 - data.exposed)[:, None]).sum(axis=0) - p["log_rho0"] / (0.5**2)
+    else:
+        g_c_r = -p["c_r"] / (0.3**2)
+        g_rho = -p["log_rho0"] / (0.5**2)
 
     grads = {
         "log_kappa": dlogmu.sum(axis=0) - (p["log_kappa"] - data.log_kappa0) / (0.3**2),
@@ -318,8 +348,8 @@ def objective_and_grad(vec: np.ndarray, data: Data) -> tuple[float, np.ndarray]:
         - 2e6 * p["ell_lambda"] * (~data.use_velocity.astype(bool)),
         "c_s": (dlogmu * data.cycle_s[:, None]).sum(axis=0) - p["c_s"] / (0.3**2),
         "c_g2m": (dlogmu * data.cycle_g2m[:, None]).sum(axis=0) - p["c_g2m"] / (0.3**2),
-        "c_r": (dlogmu * data.exposed[:, None]).sum(axis=0) - p["c_r"] / (0.3**2),
-        "log_rho0": (dlogmu * (1.0 - data.exposed)[:, None]).sum(axis=0) - p["log_rho0"] / (0.5**2),
+        "c_r": g_c_r,
+        "log_rho0": g_rho,
         "log_sigma_v": np.array([np.dot(g_xi, p["xi_hat"]) * sigma]) - (p["log_sigma_v"] + 0.2) / (0.7**2),
         "log_phi": d_log_phi(data.U, mu, phi) - (p["log_phi"] - 2.0),
         "ell_omega": d_om * omega * (1.0 - omega) - (p["ell_omega"] + 1.2),
@@ -441,12 +471,18 @@ def phenotype_from_probs(p_pheno: np.ndarray) -> np.ndarray:
     return names[np.argmax(p_pheno, axis=1)]
 
 
-def fit(data: Data, n_steps: int = 550, lr: float = 0.04, seed: int = 0) -> dict:
-    ph = annotate_phenotype(data)
-    ctrl = data.exposed < 0.5
-    low_th = (~ctrl) & (data.theta <= np.quantile(data.theta[~ctrl], 0.2))
-    if not np.any(low_th):
-        low_th = ~ctrl
+def fit(data: Data, n_steps: int = 550, lr: float = 0.04, seed: int = 0, use_cycle: bool = True) -> dict:
+    if not use_cycle:
+        data.cycle_s = np.zeros_like(data.cycle_s)
+        data.cycle_g2m = np.zeros_like(data.cycle_g2m)
+    ph = annotate_phenotype(data, use_cycle=True)
+    if has_contrast(data.exposed):
+        ctrl = data.exposed < 0.5
+        low_th = (~ctrl) & (data.theta <= np.quantile(data.theta[~ctrl], 0.2))
+        if not np.any(low_th):
+            low_th = ~ctrl
+    else:
+        low_th = data.theta <= np.quantile(data.theta, 0.2)
     kappa_hat = (data.U[low_th].mean(axis=0) + 1e-3) / (data.S[low_th].mean(axis=0) + 1e-3)
     data.log_kappa0 = np.log(np.clip(kappa_hat, 1e-4, 10.0))
 
@@ -494,6 +530,9 @@ def fit(data: Data, n_steps: int = 550, lr: float = 0.04, seed: int = 0) -> dict
         "state": state_from_probs(p_state),
         "pheno": phenotype_from_probs(ph["p_pheno"]),
         "h": ph["h"],
+        "h_als": ph["h_als"],
+        "theta": ph["theta"],
+        "beta": ph["beta"],
         "gauss_p_away": gauss_away,
         "xi_sd": sd,
         "loss": hist,

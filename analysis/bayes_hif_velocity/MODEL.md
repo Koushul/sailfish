@@ -257,3 +257,10 @@ Apply only where \(n_{\mathrm{control}}\ge 40\) per lineage and chemistry.
 - Infer a shared latent time across the transcriptome.
 - Invent flux for genes with no unspliced counts (those posteriors stay wide).
 - Treat HIF-1α protein destruction as RNA velocity; if mRNA is already down, \(\xi\approx 0\) and class is \(\theta\) only.
+
+---
+
+## 14. Single-cohort fit (E14S tumors)
+
+When there is no second sample, `exposed` is all 0. Capture \(\rho\) and sample intercepts are frozen. \(h\) is standardized on this cohort's median/MAD. Persist is a tail of **this** sample, not a class relative to never-hypoxic cells. \(\xi\) is centered on the cohort mean. Script: `fit_e14s_tumors.py`. Results: `results/e14s_tumors.md`.
+
