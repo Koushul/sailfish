@@ -182,7 +182,7 @@ def main() -> None:
     H_ph = entropy(est["p_pheno"])
     H_fx = entropy(est["p_flux"])
 
-    qs = pd.qcut(data.cycle_s, 5, duplicates="drop")
+    qs = pd.Series(pd.qcut(data.cycle_s, 5, duplicates="drop"), dtype="category")
     cycle_rows = []
     for lab in qs.cat.categories:
         m = qs == lab
