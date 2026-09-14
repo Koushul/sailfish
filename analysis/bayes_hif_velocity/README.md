@@ -8,6 +8,7 @@ See `MODEL.md`. Current analysis: each library as its own single-cohort tumor fi
 /ix1/ylee/kor11/tools/af_tutorial/conda_env/bin/python analysis/bayes_hif_velocity/fit_e14s_tumors.py
 /ix1/ylee/kor11/tools/af_tutorial/conda_env/bin/python analysis/bayes_hif_velocity/fit_e15s_tumors.py
 /ix1/ylee/kor11/tools/af_tutorial/conda_env/bin/python analysis/bayes_hif_velocity/fit_e27_tumors.py
+/ix1/ylee/kor11/tools/af_tutorial/conda_env/bin/python analysis/bayes_hif_velocity/fit_e27_drop_top_persist.py
 ```
 
 Circularity audit: `results/critique.md`. A223 E27/E29 are fitted per chemistry with a small DN control; persist gates are poorly identified.
