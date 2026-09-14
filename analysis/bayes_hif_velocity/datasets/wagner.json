@@ -1,0 +1,23 @@
+{
+  "name": "wagner",
+  "description": "Same E14S (never-hypoxic) vs E15S (hypoxia-exposed) MC38 experiment as the placed E14SE15S object, in the Wagner velocity AnnData. Gene keys are Ensembl `_index` plus `var.gene_name`. Tumor lineage is the union of Tumor / Hypoxic Tumor / Tumor Proliferating cluster names (cluster names are not hypoxia labels). Existing `hypoxia_state` is a previous analysis, not ground truth.",
+  "h5ad": "/ix1/ylee/shared/external/data/WagnerCollab/mc38_velocity.h5ad",
+  "sample_col": "sample",
+  "lineage_col": "cell_type",
+  "gene_symbol_col": "gene_name",
+  "control_sample": "E14S",
+  "exposed_sample": "E15S",
+  "historical_state_col": "hypoxia_state",
+  "historical_theta_col": null,
+  "require_all_panel": false,
+  "lineages": {
+    "Tumor": {
+      "values": ["Tumor", "Hypoxic Tumor", "Tumor Proliferating"],
+      "min_spliced": 5000
+    },
+    "neutrophil": {
+      "values": ["Neutrophil"],
+      "min_spliced": 2000
+    }
+  }
+}

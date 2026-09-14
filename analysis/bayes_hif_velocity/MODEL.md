@@ -65,7 +65,7 @@ After fitting, \(h\) is centered at the control median and scaled by the control
 \theta_n=\frac{1}{1+\exp\bigl((h_n-h_0)/\tau\bigr)}
 \]
 
-with \(\theta=0.88\) at \(h=0\) (typical never-hypoxic cell) and \(\theta=0.3\) at \(h=1.5\) (persistent). That is a shift relative to the **typical** control cell, not the control 99th percentile (one noisy high-depth E14 cell). Hard labels: control cells are **reverted** (never hypoxic by design); persist/partial/reverted gates apply to exposed cells.
+with \(\theta=0.88\) at \(h=0\) (typical never-hypoxic cell) and \(\theta=0.3\) at \(h=1.5\) (persistent). That is a shift relative to the **typical** control cell, not the control 99th percentile (one noisy high-depth E14 cell). Hard labels: control cells are **reverted** (never hypoxic by design); persist/partial/reverted gates apply to exposed cells. That forced 0% control persist is a **constraint**, not a measurement. Always also store the empirical θ-gate on control (`pheno_empirical`). See `results/critique.md`.
 
 Soft phenotype: a 3-component Gaussian mixture on \(h\) (control boosted on the low-\(h\) component) gives
 
@@ -232,7 +232,7 @@ E14S = never-hypoxic control, E15S = hypoxia-exposed. Fits are lineage-specific 
 
 **Library size.** E15 tumors have median spliced UMI \(6.8\times 10^{4}\) vs \(1.4\times 10^{4}\) in E14 (\(\times 4.8\)). That is a sample batch, not HIF: the panel is only \(\sim 0.8\%\) of UMIs, and CA9/VEGFA/BNIP3 CPM are not induced. Scaling counts to a pooled median still left \(\mathrm{corr}(h,\log L)\approx 0.34\), so high-depth E14 cells set the “hypoxic” bar and E15 persist collapsed. The factor now uses log1p CPM plus a **within-sample** log-library covariate; \(\mathrm{corr}(h,\log L)\) falls to \(\sim 0.10\). Neutrophil depth is similar across samples (\(\times 0.84\)).
 
-**Phenotype.** Control cells are labeled reverted (never hypoxic by design). Exposed persist is \(\theta\le 0.3\) (\(h\ge 1.5\) control MAD above a typical E14 cell). E15 tumors (n=2327): persist / partial / reverted \(7.6\% / 24.2\% / 68.2\%\). E15 neutrophils (n=938): \(6.1\% / 29.0\% / 64.9\%\). The HIF panel after depth correction is a modest E15 shift (glycolysis more than CA9), not a 30% persistent block; historical \(\theta\) gates mixed depth with program.
+**Phenotype.** Control cells are labeled reverted (never hypoxic by design). That 0% E14 persist is forced. Empirical θ-gate on the same \(\theta\) (no force): E14 tumors \(11.2\%\) persist / \(10.5\%\) partial; E14 neutrophils \(5.3\%\) / \(19.4\%\). Exposed persist is \(\theta\le 0.3\) (\(h\ge 1.5\) control MAD above a typical E14 cell). E15 tumors (n=2327): persist / partial / reverted \(7.6\% / 24.2\% / 68.2\%\). E15 neutrophils (n=938): \(6.1\% / 29.0\% / 64.9\%\). Neutrophil GMM collapsed to 100% reverted — do not treat GMM as confirmation. The HIF panel after depth correction is a modest E15 shift (glycolysis more than CA9), not a 30% persistent block; historical \(\theta\) gates mixed depth with program.
 
 Lag still does not add a clear E15-specific reoxygenation wave (tumor \(p^{\mathrm{away}}\) \(0.16\) in E14 vs \(0.14\) in E15). Hard flux remains rare.
 
@@ -240,7 +240,19 @@ Figures: `results/e14e15_tumor_overview.png`, `results/e14e15_neutrophil_overvie
 
 ---
 
-## 12. What this does not do
+## 12. Circularity and remaining datasets
+
+Audit: `results/critique.md`. Main issues: forced control labels; GMM vs θ-gate (neutrophil GMM collapsed); \(\kappa\) from low-\(\theta\) exposed; control mean \(\xi=0\) by construction while tumor \(p^{\mathrm{away}}\) is already \(\sim 0.16\); equal WLS weight on n=152 E14 tumors; Wagner is the same E14/E15 libraries; A223 DN n is too small to fit.
+
+**Wagner** (`fit_dataset.py` + `datasets/wagner.json`): pipeline replicate on `mc38_velocity.h5ad` (Ensembl + `gene_name`; Tumor ∪ Hypoxic Tumor ∪ Tumor Proliferating). Not an independent exposure.
+
+**A223**: skipped (`report_a223.py`, `results/a223.md`). DN tumors 13+12, neutrophils 4+3. DCF ≠ HIF. Do not borrow the E14 control location.
+
+Apply only where \(n_{\mathrm{control}}\ge 40\) per lineage and chemistry.
+
+---
+
+## 13. What this does not do
 
 - Infer a shared latent time across the transcriptome.
 - Invent flux for genes with no unspliced counts (those posteriors stay wide).

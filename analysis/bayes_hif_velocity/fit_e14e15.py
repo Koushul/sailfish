@@ -115,7 +115,9 @@ def _onehot_pheno(pheno: np.ndarray) -> np.ndarray:
 
 def cell_table(placed: PlacedCounts, mask: np.ndarray, data: Data, est: dict, lineage: str) -> pd.DataFrame:
     idx = np.flatnonzero(mask)
-    p_state = joint_state_probs(_onehot_pheno(phenotype_calls(data.theta, data.exposed)), est["p_flux"])
+    pheno = phenotype_calls(data.theta, data.exposed, force_control_reverted=True)
+    pheno_emp = phenotype_calls(data.theta, data.exposed, force_control_reverted=False)
+    p_state = joint_state_probs(_onehot_pheno(pheno), est["p_flux"])
     df = pd.DataFrame(
         {
             "cell": placed.cell_id[idx],
@@ -137,7 +139,8 @@ def cell_table(placed: PlacedCounts, mask: np.ndarray, data: Data, est: dict, li
             "p_partial": est["p_pheno"][:, 1],
             "p_reverted": est["p_pheno"][:, 2],
             "pheno_gmm": est["pheno"],
-            "pheno": phenotype_calls(data.theta, data.exposed),
+            "pheno": pheno,
+            "pheno_empirical": pheno_emp,
             "state_gmm": est["state"],
             "state": state_from_probs(p_state),
             "historical_state": placed.historical_state[idx],
@@ -225,6 +228,9 @@ def eval_lineage(df: pd.DataFrame, data: Data, est: dict, lineage: str) -> dict:
         "e14_frac_persistent": float(np.mean(df.loc[ctrl, "pheno"] == "persistent")),
         "e14_frac_partial": float(np.mean(df.loc[ctrl, "pheno"] == "partial")),
         "e14_frac_reverted": float(np.mean(df.loc[ctrl, "pheno"] == "reverted")),
+        "e14_frac_persistent_empirical": float(np.mean(df.loc[ctrl, "pheno_empirical"] == "persistent")),
+        "e14_frac_partial_empirical": float(np.mean(df.loc[ctrl, "pheno_empirical"] == "partial")),
+        "e14_frac_reverted_empirical": float(np.mean(df.loc[ctrl, "pheno_empirical"] == "reverted")),
         "mean_p_away_exposed": float(df.loc[exp, "p_away"].mean()) if exp.any() else float("nan"),
         "mean_p_toward_exposed": float(df.loc[exp, "p_toward"].mean()) if exp.any() else float("nan"),
         "frac_hard_flux_exposed": float(np.mean(df.loc[exp, "state"].isin(FLUX_STATES))) if exp.any() else float("nan"),
@@ -380,7 +386,7 @@ def write_eval_md(path: Path, evals: list[dict], summaries: pd.DataFrame, qc: pd
         "## How to read this",
         "",
         "- Spliced phenotype uses log1p CPM (cell-wide L) plus a within-sample log-library covariate. E14 vs E15 tumor depth is a batch (~5×), not HIF; residualizing pooled depth was canceling or inflating h.",
-        "- Never-hypoxic control cells are labeled reverted by design. Exposed persist is theta<=0.3, i.e. >=1.5 control MADs above the typical E14 cell — not above the noisiest E14 cell.",
+        "- Never-hypoxic control cells are labeled reverted by design (forced). Report pheno_empirical on E14 as well: that is the fraction that would fail the persist/partial gates without the design constraint.",
         "- Primary phenotype is that θ gate. The 3-component GMM is stored as pheno_gmm.",
         "- Lag (xi, p_away, p_toward) is residual unspliced after library, capture, and cycle. Synthetic tests recovered rank of xi only weakly; report probabilities. If control p_away is high, do not read E15 flux as reoxygenation.",
         "- Neutrophils have lower UMI and a weaker HIF transcriptional program than MC38 tumors. A small persistent fraction there is not evidence they share tumor kinetics.",

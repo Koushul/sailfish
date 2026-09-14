@@ -508,11 +508,21 @@ def fit(data: Data, n_steps: int = 550, lr: float = 0.04, seed: int = 0) -> dict
     }
 
 
-def phenotype_calls(theta: np.ndarray, exposed: np.ndarray | None = None) -> np.ndarray:
+def phenotype_calls(
+    theta: np.ndarray,
+    exposed: np.ndarray | None = None,
+    *,
+    force_control_reverted: bool = True,
+) -> np.ndarray:
+    """θ-gate labels. Forced control→reverted is a design constraint, not a measurement.
+
+    Pass force_control_reverted=False for the empirical diagnostic (how many
+    never-hypoxic cells would fail the persist/partial gates).
+    """
     out = np.array(["partial"] * theta.size, dtype=object)
     out[theta <= 0.3] = "persistent"
     out[theta >= 0.7] = "reverted"
-    if exposed is not None:
+    if force_control_reverted and exposed is not None:
         out[np.asarray(exposed) < 0.5] = "reverted"
     return out
 

@@ -6,7 +6,11 @@ See `MODEL.md` for the HIF-α panel, spliced factor + GMM phenotype, ZINB lag, a
 /ix1/ylee/kor11/tools/af_tutorial/conda_env/bin/python analysis/bayes_hif_velocity/test_synthetic.py
 /ix1/ylee/kor11/tools/af_tutorial/conda_env/bin/python analysis/bayes_hif_velocity/benchmark_synthetic.py
 /ix1/ylee/kor11/tools/af_tutorial/conda_env/bin/python analysis/bayes_hif_velocity/fit_e14e15.py
+/ix1/ylee/kor11/tools/af_tutorial/conda_env/bin/python analysis/bayes_hif_velocity/fit_dataset.py --config analysis/bayes_hif_velocity/datasets/wagner.json
+/ix1/ylee/kor11/tools/af_tutorial/conda_env/bin/python analysis/bayes_hif_velocity/report_a223.py
 ```
+
+Circularity audit: `results/critique.md`. A223 is not fitted (DN n too small).
 
 Synthetic cells have overlapping HIF programs, discrete G1/S/G2M, cycle-only decoys, silent targets, mixed weak/strong lag, capture shift, and unspliced dropout. Trust posterior probabilities more than hard `transitioning_out` labels.
 
