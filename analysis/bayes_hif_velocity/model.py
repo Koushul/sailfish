@@ -229,9 +229,13 @@ def hypoxia_factor(data: Data, n_iter: int = 50, use_cycle: bool = True) -> dict
     n, g = z.shape
     cs = data.cycle_s if use_cycle else np.zeros(n)
     cg = data.cycle_g2m if use_cycle else np.zeros(n)
-    corr = np.array(
-        [abs(np.corrcoef(z[:, j], cs)[0, 1]) if z[:, j].std() > 1e-8 else 1.0 for j in range(g)]
-    )
+    if float(np.std(cs)) > 1e-12:
+        corr = np.array(
+            [abs(np.corrcoef(z[:, j], cs)[0, 1]) if z[:, j].std() > 1e-8 else 1.0 for j in range(g)]
+        )
+        corr = np.nan_to_num(corr, nan=1.0)
+    else:
+        corr = np.zeros(g)
     anchor = data.anchor if data.anchor.size == g else np.ones(g)
     w = anchor / (0.3 + corr)
     w = w / np.clip(w.sum(), EPS, None)
@@ -240,17 +244,27 @@ def hypoxia_factor(data: Data, n_iter: int = 50, use_cycle: bool = True) -> dict
     ones = np.ones(n)
     lib = library_covariate(data)
     sw = np.sqrt(_balanced_cell_weights(data.exposed))[:, None]
+    use_s = float(np.std(cs)) > 1e-12
+    use_g = float(np.std(cg)) > 1e-12
     for _ in range(n_iter):
-        H = np.column_stack([h, cs, cg, lib, ones])
+        cols = [h]
+        if use_s:
+            cols.append(cs)
+        if use_g:
+            cols.append(cg)
+        cols.extend([lib, ones])
+        H = np.column_stack(cols)
         coef = np.linalg.lstsq(H * sw, z * sw, rcond=None)[0]
         beta = np.maximum(coef[0], 0.0)
-        resid = (
-            z
-            - cs[:, None] * coef[1]
-            - cg[:, None] * coef[2]
-            - lib[:, None] * coef[3]
-            - coef[4]
-        )
+        resid = z - coef[-1]
+        resid = resid - lib[:, None] * coef[-2]
+        k = 1
+        if use_s:
+            resid = resid - cs[:, None] * coef[k]
+            k += 1
+        if use_g:
+            resid = resid - cg[:, None] * coef[k]
+            k += 1
         denom = float(np.dot(beta, beta) + 1e-6)
         h = resid @ beta / denom
         h = h - h.mean()
