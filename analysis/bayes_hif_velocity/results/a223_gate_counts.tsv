@@ -1,0 +1,15 @@
+lineage	lane	ocm_gate	n	median_spliced_umi
+Tumor	E27	DN	13	20014.0
+Tumor	E27	DP	2518	13598.5
+Tumor	E27	hypoxia_plus	2535	8425.0
+Tumor	E29	DN	12	9374.5
+Tumor	E29	DP	2853	23187.0
+Tumor	E29	hypoxia_plus	1748	30993.5
+Tumor	E29	lactate_plus	12	12725.0
+neutrophil	E27	DN	4	2019.5
+neutrophil	E27	DP	51	10640.0
+neutrophil	E27	hypoxia_plus	150	7279.5
+neutrophil	E27	lactate_plus	1	2061.0
+neutrophil	E29	DN	3	3524.0
+neutrophil	E29	DP	60	13305.5
+neutrophil	E29	hypoxia_plus	140	4143.5

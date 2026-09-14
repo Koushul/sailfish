@@ -1,0 +1,33 @@
+human	mouse	role	in_hallmark_hypoxia	note
+SLC2A1	Slc2a1	glycolysis	True	GLUT1; canonical HIF-1 glucose uptake
+SLC2A3	Slc2a3	glycolysis	True	GLUT3; HIF-1 glucose uptake
+HK2	Hk2	glycolysis	True	hexokinase 2; HIF-1 glycolytic enzyme
+PFKL	Pfkl	glycolysis	True	phosphofructokinase; HIF-1
+PFKP	Pfkp	glycolysis	True	platelet PFK; HIF-1
+PFKFB3	Pfkfb3	glycolysis	True	PFKFB3; HIF-1 glycolytic flux
+ALDOA	Aldoa	glycolysis	True	aldolase A; HIF-1
+ALDOC	Aldoc	glycolysis	True	aldolase C; HIF-1
+TPI1	Tpi1	glycolysis	True	triose phosphate isomerase; HIF-1
+GAPDH	Gapdh	glycolysis	True	GAPDH; HIF-1
+PGK1	Pgk1	glycolysis	True	PGK1; textbook HRE / HIF-1
+ENO1	Eno1	glycolysis	True	enolase 1; HIF-1
+ENO2	Eno2	glycolysis	True	enolase 2; HIF-1
+PKM	Pkm	glycolysis	False	PKM2; direct HIF-1 target
+LDHA	Ldha	glycolysis	True	LDHA; canonical HIF-1 lactate enzyme
+PDK1	Pdk1	mitochondria	True	PDK1; HIF-1 block of PDH / TCA entry
+SLC16A3	Slc16a3	transport	False	MCT4; HIF-1 lactate export
+VEGFA	Vegfa	angiogenesis	True	VEGFA; HIF-1 and HIF-2
+ADM	Adm	peptide	True	adrenomedullin; HIF peptide target
+ANGPTL4	Angptl4	angiogenesis	True	ANGPTL4; HIF angiogenic target
+CA9	Car9	pH	False	CA9; strongest HIF-1 reporter gene
+BNIP3	Bnip3	mitophagy	False	BNIP3; HIF-1 mitochondrial target
+BNIP3L	Bnip3l	mitophagy	True	BNIP3L/NIX; HIF mitophagy
+NDRG1	Ndrg1	stress	True	NDRG1; HIF-1 stress target
+DDIT4	Ddit4	signaling	True	REDD1; HIF-1 mTOR brake
+P4HA1	P4ha1	ECM	True	P4HA1; HIF collagen hydroxylase
+P4HA2	P4ha2	ECM	True	P4HA2; HIF collagen hydroxylase
+LOX	Lox	ECM	True	lysyl oxidase; HIF ECM target
+EGLN3	Egln3	feedback	False	PHD3; HIF-induced negative feedback
+BHLHE40	Bhlhe40	transcription	True	DEC1; HIF-1 transcriptional target
+CXCR4	Cxcr4	migration	True	CXCR4; HIF-1 chemokine receptor
+SERPINE1	Serpine1	ECM	True	PAI-1; HIF-1
