@@ -23,3 +23,21 @@ Annotated cells, Neutrophil labels:
 DN matches unsorted A223 PMN-MDSC ~1.22% (Strait et al.). DCF+ over-represents neutrophils ~4.5-fold vs DN. E15S vs E14S placed cells: neutrophils **14.9% vs 8.3%** (OR 1.94).
 
 Table: `neutrophil_gate_enrichment.csv`.
+
+## Are DCF+ neutrophils making ROS according to RNA?
+
+No. DCF is the ROS assay (oxidase assembly / p47phox phosphorylation). scRNA-seq does not capture that.
+
+QC neutrophils (spliced UMI ≥ 1500): DCF+ n=272, DP n=111, DN n=4 (DN too small to test).
+
+| module | DCF+ vs DP AUROC | interpretation |
+|--------|-----------------:|----------------|
+| NADPH oxidase subunits (`Cybb`, `Ncf1`, …) | 0.61 | small increase; `Cybb` still mostly undetected (28% vs 14% nonzero) |
+| NRF2 / ROS response (`Hmox1`, `Nqo1`, `Sod2`, …) | 0.50 | no transcriptional ROS response |
+| Wright priming (`Cxcl1/2`, `Il1b`, …) | 0.47 | not DCF-specific; DP is as high or higher |
+| TNF/NF-κB priming | 0.41 | **higher in DP**, not DCF+ |
+| HIF glycolytic module | 0.43 | **higher in DP** |
+
+E15 vs E14 neutrophils (same genes): priming **up** (AUROC 0.69), oxidase **down** (0.40), NRF2 not up (0.46). Hypoxia-sorted neutrophils look primed, not oxidase-high.
+
+Tables: `ros_rna_module_contrasts.csv`, `ros_rna_gene_medians.csv`.
