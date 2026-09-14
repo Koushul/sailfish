@@ -89,9 +89,9 @@ def load_placed(path: str) -> PlacedCounts:
     L = np.asarray(spliced.sum(axis=1)).ravel()
     S = spliced[:, panel_idx].toarray()
     U = unspliced[:, panel_idx].toarray()
-    scale = np.median(L) / np.clip(L, 1.0, None)
-    log_s = np.log1p(spliced[:, s_idx].toarray() * scale[:, None]) if s_idx.size else np.zeros((n_obs, 1))
-    log_g = np.log1p(spliced[:, g2m_idx].toarray() * scale[:, None]) if g2m_idx.size else np.zeros((n_obs, 1))
+    cpm_scale = 1e4 / np.clip(L, 1.0, None)
+    log_s = np.log1p(spliced[:, s_idx].toarray() * cpm_scale[:, None]) if s_idx.size else np.zeros((n_obs, 1))
+    log_g = np.log1p(spliced[:, g2m_idx].toarray() * cpm_scale[:, None]) if g2m_idx.size else np.zeros((n_obs, 1))
     cycle_s = log_s.mean(axis=1)
     cycle_g2m = log_g.mean(axis=1)
     return PlacedCounts(

@@ -51,7 +51,7 @@ def evaluate_fit(data, truth: dict, est: dict) -> dict[str, float]:
     calls = est["state"]
     pheno = est["pheno"]
     p_state = est["p_state"]
-    gate = phenotype_calls(data.theta)
+    gate = phenotype_calls(data.theta, data.exposed)
     mid = partial | t_out
 
     return {

@@ -154,12 +154,31 @@ def mu_from(p: dict, data: Data, xi: np.ndarray):
 
 
 def spliced_z(data: Data) -> np.ndarray:
-    scale = np.median(data.L) / np.clip(data.L, 1.0, None)
-    log1p_s = np.log1p(data.S * scale[:, None])
+    cpm = 1e4 * data.S / np.clip(data.L, 1.0, None)[:, None]
+    log1p_s = np.log1p(cpm)
     ctrl = data.exposed < 0.5
     mu0 = log1p_s[ctrl].mean(axis=0)
-    sd0 = np.clip(log1p_s[ctrl].std(axis=0), 1e-6, None)
+    sd_std = log1p_s[ctrl].std(axis=0)
+    mad = 1.4826 * np.median(np.abs(log1p_s[ctrl] - mu0), axis=0)
+    sd0 = np.clip(np.maximum(sd_std, mad), 0.2, None)
     return np.clip((log1p_s - mu0) / sd0, -6.0, 6.0)
+
+
+def library_covariate(data: Data) -> np.ndarray:
+    """Within-sample log library size, scaled by control SD.
+
+    Between-sample depth is already removed by CPM. This term only absorbs
+    leftover within-E14 / within-E15 capture so h is not a depth score.
+    """
+    ll = np.log(np.clip(data.L, 1.0, None))
+    ctrl = data.exposed < 0.5
+    out = np.empty(ll.shape[0], dtype=np.float64)
+    out[ctrl] = ll[ctrl] - ll[ctrl].mean()
+    expm = ~ctrl
+    if np.any(expm):
+        out[expm] = ll[expm] - ll[expm].mean()
+    den = float(np.std(ll[ctrl])) + 1e-6
+    return out / den
 
 
 def _balanced_cell_weights(exposed: np.ndarray) -> np.ndarray:
@@ -179,19 +198,19 @@ def _logit(p: float) -> float:
 
 
 def theta_from_control_h(h: np.ndarray, exposed: np.ndarray) -> dict:
-    """Map h (control MAD units) so never-hypoxic cells sit at high theta.
+    """Map control-MAD-scaled h so typical never-hypoxic cells are HIF-off.
 
-    theta=0.7 at the control 90th percentile; theta=0.3 above the control
-    envelope. Persistent hypoxia is exceeding never-hypoxic variation, not
-    the upper half of a pooled distribution.
+    After CPM and within-sample depth residualization, h=0 is the control
+    median. theta=0.88 there. Persistent (theta=0.3) is 1.5 control MADs
+    above that typical off level, not the noisiest control cell (q99).
     """
-    ctrl = exposed < 0.5
-    h_off = float(np.quantile(h[ctrl], 0.90))
-    h_on = max(float(np.quantile(h[ctrl], 0.99)), h_off + 0.75)
-    tau = max((h_on - h_off) / (_logit(0.7) - _logit(0.3)), 0.15)
-    h0 = h_off + tau * _logit(0.7)
+    del exposed
+    h_on = 1.5
+    t_off, t_on = 0.88, 0.3
+    tau = max(h_on / (_logit(t_off) - _logit(t_on)), 0.15)
+    h0 = tau * _logit(t_off)
     theta = expit(-(h - h0) / tau)
-    return {"theta": theta, "h_lo": h_off, "h_hi": h_on, "h0": h0, "tau": tau}
+    return {"theta": theta, "h_lo": 0.0, "h_hi": h_on, "h0": h0, "tau": tau}
 
 
 def hypoxia_factor(data: Data, n_iter: int = 50) -> dict:
@@ -207,12 +226,19 @@ def hypoxia_factor(data: Data, n_iter: int = 50) -> dict:
     h = z @ w
     h = (h - h.mean()) / (h.std() + EPS)
     ones = np.ones(n)
+    lib = library_covariate(data)
     sw = np.sqrt(_balanced_cell_weights(data.exposed))[:, None]
     for _ in range(n_iter):
-        H = np.column_stack([h, cs, cg, ones])
+        H = np.column_stack([h, cs, cg, lib, ones])
         coef = np.linalg.lstsq(H * sw, z * sw, rcond=None)[0]
         beta = np.maximum(coef[0], 0.0)
-        resid = z - cs[:, None] * coef[1] - cg[:, None] * coef[2] - coef[3]
+        resid = (
+            z
+            - cs[:, None] * coef[1]
+            - cg[:, None] * coef[2]
+            - lib[:, None] * coef[3]
+            - coef[4]
+        )
         denom = float(np.dot(beta, beta) + 1e-6)
         h = resid @ beta / denom
         h = h - h.mean()
@@ -230,6 +256,9 @@ def hypoxia_factor(data: Data, n_iter: int = 50) -> dict:
     h = h / (1.4826 * mad0)
     h = np.clip(h, -8.0, 8.0)
     mapped = theta_from_control_h(h, data.exposed)
+    ll = np.log(np.clip(data.L, 1.0, None))
+    mapped["corr_h_logL"] = float(np.corrcoef(h, ll)[0, 1]) if h.size > 2 else 0.0
+    mapped["lib"] = lib
     return {"h": h, "h_als": h_als, "beta": beta, **mapped}
 
 
@@ -479,10 +508,12 @@ def fit(data: Data, n_steps: int = 550, lr: float = 0.04, seed: int = 0) -> dict
     }
 
 
-def phenotype_calls(theta: np.ndarray) -> np.ndarray:
+def phenotype_calls(theta: np.ndarray, exposed: np.ndarray | None = None) -> np.ndarray:
     out = np.array(["partial"] * theta.size, dtype=object)
     out[theta <= 0.3] = "persistent"
     out[theta >= 0.7] = "reverted"
+    if exposed is not None:
+        out[np.asarray(exposed) < 0.5] = "reverted"
     return out
 
 

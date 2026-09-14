@@ -115,7 +115,7 @@ def _onehot_pheno(pheno: np.ndarray) -> np.ndarray:
 
 def cell_table(placed: PlacedCounts, mask: np.ndarray, data: Data, est: dict, lineage: str) -> pd.DataFrame:
     idx = np.flatnonzero(mask)
-    p_state = joint_state_probs(_onehot_pheno(phenotype_calls(data.theta)), est["p_flux"])
+    p_state = joint_state_probs(_onehot_pheno(phenotype_calls(data.theta, data.exposed)), est["p_flux"])
     df = pd.DataFrame(
         {
             "cell": placed.cell_id[idx],
@@ -137,7 +137,7 @@ def cell_table(placed: PlacedCounts, mask: np.ndarray, data: Data, est: dict, li
             "p_partial": est["p_pheno"][:, 1],
             "p_reverted": est["p_pheno"][:, 2],
             "pheno_gmm": est["pheno"],
-            "pheno": phenotype_calls(data.theta),
+            "pheno": phenotype_calls(data.theta, data.exposed),
             "state_gmm": est["state"],
             "state": state_from_probs(p_state),
             "historical_state": placed.historical_state[idx],
@@ -203,13 +203,21 @@ def eval_lineage(df: pd.DataFrame, data: Data, est: dict, lineage: str) -> dict:
     exp = ~ctrl
     cycle_rho, _ = spearmanr(est["xi_mean"], data.cycle_s)
     h_rho_s, _ = spearmanr(est["h"], data.cycle_s)
+    logL = np.log(np.clip(data.L, 1.0, None))
+    h_rho_L, _ = spearmanr(est["h"], logL)
     out = {
         "lineage": lineage,
         "n_cells": int(len(df)),
         "n_control": int(ctrl.sum()),
         "n_exposed": int(exp.sum()),
+        "median_spliced_umi_control": float(np.median(data.L[ctrl])),
+        "median_spliced_umi_exposed": float(np.median(data.L[exp])) if exp.any() else float("nan"),
+        "umi_ratio_exposed_over_control": float(np.median(data.L[exp]) / max(np.median(data.L[ctrl]), 1.0))
+        if exp.any()
+        else float("nan"),
         "spearman_xi_cycle_s": float(cycle_rho),
         "spearman_h_cycle_s": float(h_rho_s),
+        "spearman_h_logL": float(h_rho_L),
         "mean_abs_xi_control": float(np.mean(np.abs(est["xi_mean"][ctrl]))),
         "mean_p_away_control": float(df.loc[ctrl, "p_away"].mean()),
         "mean_p_toward_control": float(df.loc[ctrl, "p_toward"].mean()),
@@ -371,7 +379,8 @@ def write_eval_md(path: Path, evals: list[dict], summaries: pd.DataFrame, qc: pd
     lines += [
         "## How to read this",
         "",
-        "- θ is anchored to the never-hypoxic envelope: 0.7 at the E14 90th percentile of h, 0.3 above the E14 99th. E14 should be almost all reverted, not 20% persistent.",
+        "- Spliced phenotype uses log1p CPM (cell-wide L) plus a within-sample log-library covariate. E14 vs E15 tumor depth is a batch (~5×), not HIF; residualizing pooled depth was canceling or inflating h.",
+        "- Never-hypoxic control cells are labeled reverted by design. Exposed persist is theta<=0.3, i.e. >=1.5 control MADs above the typical E14 cell — not above the noisiest E14 cell.",
         "- Primary phenotype is that θ gate. The 3-component GMM is stored as pheno_gmm.",
         "- Lag (xi, p_away, p_toward) is residual unspliced after library, capture, and cycle. Synthetic tests recovered rank of xi only weakly; report probabilities. If control p_away is high, do not read E15 flux as reoxygenation.",
         "- Neutrophils have lower UMI and a weaker HIF transcriptional program than MC38 tumors. A small persistent fraction there is not evidence they share tumor kinetics.",
