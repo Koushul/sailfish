@@ -246,7 +246,7 @@ Audit: `results/critique.md`. Main issues: forced control labels; GMM vs θ-gate
 
 **Wagner** (`fit_dataset.py` + `datasets/wagner.json`): pipeline replicate on `mc38_velocity.h5ad` (Ensembl + `gene_name`; Tumor ∪ Hypoxic Tumor ∪ Tumor Proliferating). *Lox* absent. Empirical E14 tumor persist \(11.5\%\) matches the placed object (\(11.2\%\)). E15 tumor persist is \(20\%\) here vs \(7.6\%\) on the placed object — UMI ratio is \(\sim 1\) here vs \(\sim 5\) there, so persist is not identified across processings. Old `hypoxia_state` is \(91\%\) persist on E15 tumors (23% agreement). Not an independent exposure. Tables: `results/wagner.md`.
 
-**A223 E27 / E29** (`fit_a223.py`): fitted **separately** (3′ vs 5′). `hypoxia_plus` is DCF (ROS), not HIF. Lineage from QC barcodes, not all DN droplets. Tumor DN n=13 / 12; neutrophil DN n=4 / 3. Empirical tumor persist: E27 DCF+ \(35\%\), DP \(43\%\) vs E29 DCF+ \(6\%\), DP \(8\%\). Neutrophil exposed persist is \(72{-}95\%\) with a 3–4 cell control — MAD is unidentified. Lag is flat. Tables: `results/a223.md`. Do not borrow the E14 control location.
+**A223 E27 / E29** (`fit_a223.py`): fitted **separately** (3′ vs 5′). `hypoxia_plus` is Image-iT+ in the GFP channel, **the same probe as E15S** (not transgenic GFP, not ROS/DCF). Lineage from QC barcodes, not all DN droplets. Tumor DN n=13 / 12; neutrophil DN n=4 / 3. Empirical tumor persist: E27 Image-iT+ \(35\%\), DP \(43\%\) vs E29 Image-iT+ \(6\%\), DP \(8\%\). Neutrophil exposed persist is \(72{-}95\%\) with a 3–4 cell control — MAD is unidentified. Lag is flat. Tables: `results/a223.md`. Do not borrow the E14 control location.
 
 Apply only where \(n_{\mathrm{control}}\ge 40\) per lineage and chemistry.
 

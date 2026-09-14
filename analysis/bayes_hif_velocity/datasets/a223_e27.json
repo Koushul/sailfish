@@ -1,6 +1,6 @@
 {
   "name": "a223_e27",
-  "description": "A223 E27 (3′ OCM GEX). hypoxia_plus is Image-iT LIVE Green ROS (DCF), not GFP and not HIF-α protein. DN is the never-hypoxic-like gate. Lineage is from tumor/neutrophil QC tables (not all droplets). DN n is below the recommended 40; control MAD and mean ξ are poorly identified. Do not transfer the E14 control location. Do not write into the h5ad.",
+  "description": "A223 E27 (3′ OCM GEX). hypoxia_plus is Image-iT+ in the GFP channel, the same probe as E15S (not transgenic GFP, not ROS/DCF). DN is Image-iT−. Lineage is from tumor/neutrophil QC tables (not all droplets). DN n is below the recommended 40; control MAD and mean ξ are poorly identified. Do not transfer the E14 control location. Do not write into the h5ad.",
   "h5ad": "/ix1/ylee/kor11/A223/E27/ocm/E27_gex_adt_ocm.h5ad",
   "sample_col": "sample_id",
   "lineage_col": null,

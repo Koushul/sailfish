@@ -8,7 +8,7 @@ import pandas as pd
 
 TUMOR = "/ix1/ylee/kor11/A223/tumor_kinetics/tumor_qc.csv"
 NEU = "/ix1/ylee/kor11/A223/neutrophil_hypoxia/neutrophils.csv"
-OUT = Path(__file__).resolve().parent / "results" / "a223.md"
+OUT = Path(__file__).resolve().parent / "results" / "a223_dn_counts.md"
 MIN_CONTROL = 40
 
 
@@ -35,9 +35,9 @@ def main() -> None:
     tab = pd.concat([ttab, ntab], ignore_index=True)
     dn = tab[tab["ocm_gate"] == "DN"]
     lines = [
-        "# A223: model not applied",
+        "# A223 DN counts",
         "",
-        "`hypoxia_plus` is Image-iT LIVE Green ROS (DCF), not GFP and not HIF-α protein. `DN` is the only never-hypoxic-like gate. The spliced factor needs a control median/MAD; lag pins mean \(\\xi\) on the control. Counts below the minimum (n_control < 40 **per chemistry**) mean persist/reverted is not identified.",
+        "`hypoxia_plus` is Image-iT+ in the GFP channel, the same probe as E15S (not transgenic GFP, not ROS/DCF). `DN` is Image-iT−. The spliced factor needs a control median/MAD; lag pins mean \(\\xi\) on the control. Counts below the minimum (n_control < 40 **per chemistry**) mean persist/reverted is not identified.",
         "",
         "Do not transfer the E14 control location onto this tumor. Do not pool E27 (3′) with E29 (5′) to inflate DN n. Do not write into A223 h5ads.",
         "",
