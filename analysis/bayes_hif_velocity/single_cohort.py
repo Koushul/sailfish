@@ -66,11 +66,10 @@ def clone_data(data: Data) -> Data:
     )
 
 
-def build_data(placed, sample: str) -> tuple[Data, np.ndarray, np.ndarray]:
-    keep = (placed.sample == sample) & (placed.cell_group == LINEAGE) & (placed.L >= MIN_SPLICED)
+def build_data(placed, keep: np.ndarray) -> tuple[Data, np.ndarray]:
     n = int(keep.sum())
     if n < 20:
-        raise SystemExit(f"too few cells for {sample}: {n}")
+        raise SystemExit(f"too few cells: {n}")
     U = placed.U[keep]
     S = placed.S[keep]
     keep_g = gene_mask(U)
@@ -93,7 +92,7 @@ def build_data(placed, sample: str) -> tuple[Data, np.ndarray, np.ndarray]:
         log_kappa0=np.zeros(U.shape[1]),
         anchor=anchor,
     )
-    return data, keep, keep_g
+    return data, keep_g
 
 
 def bootstrap_h(data: Data, n_boot: int, seed: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -144,12 +143,33 @@ def add_args(p: argparse.ArgumentParser) -> argparse.ArgumentParser:
 
 
 def run(sample: str, slug: str, args: argparse.Namespace) -> None:
+    placed = load_placed(args.h5ad)
+    keep = (placed.sample == sample) & (placed.cell_group == LINEAGE) & (placed.L >= MIN_SPLICED)
+    run_cohort(placed, keep, slug=slug, cohort_name=sample, args=args)
+
+
+def _md_table(df: pd.DataFrame) -> str:
+    try:
+        return df.to_markdown(index=False)
+    except Exception:
+        return "```\n" + df.to_string(index=False) + "\n```"
+
+
+def run_cohort(
+    placed,
+    keep: np.ndarray,
+    *,
+    slug: str,
+    cohort_name: str,
+    args: argparse.Namespace,
+    extra_cell_cols: dict[str, np.ndarray] | None = None,
+    intro: str | None = None,
+) -> None:
     out = Path(args.out_dir)
     out.mkdir(parents=True, exist_ok=True)
-    placed = load_placed(args.h5ad)
-    data, mask, keep_g = build_data(placed, sample)
+    data, keep_g = build_data(placed, keep)
     print(
-        f"{sample} tumors n={data.U.shape[0]} detected={int(keep_g.sum())} "
+        f"{cohort_name} tumors n={data.U.shape[0]} detected={int(keep_g.sum())} "
         f"velocity={int((data.use_velocity > 0.5).sum())} "
         f"Tirosh S={placed.n_s_genes} G2M={placed.n_g2m_genes}",
         flush=True,
@@ -158,7 +178,7 @@ def run(sample: str, slug: str, args: argparse.Namespace) -> None:
     est0 = fit(clone_data(data), n_steps=args.n_steps, seed=args.seed, use_cycle=False)
     pheno = phenotype_calls(est["theta"], force_control_reverted=False)
     pheno0 = phenotype_calls(est0["theta"], force_control_reverted=False)
-    idx = np.flatnonzero(mask)
+    idx = np.flatnonzero(keep)
     rho_h_s, _ = spearmanr(est["h"], data.cycle_s)
     rho_h_g, _ = spearmanr(est["h"], data.cycle_g2m)
     rho_xi_s, _ = spearmanr(est["xi_mean"], data.cycle_s)
@@ -214,6 +234,9 @@ def run(sample: str, slug: str, args: argparse.Namespace) -> None:
             "boot_p_persist": persist_boot,
         }
     )
+    if extra_cell_cols:
+        for name, arr in extra_cell_cols.items():
+            cells[name] = np.asarray(arr)[keep]
     genes = pd.DataFrame(
         [
             {
@@ -264,20 +287,24 @@ def run(sample: str, slug: str, args: argparse.Namespace) -> None:
     ax.set_ylabel("fraction")
     ax.set_title("θ-gate vs cycle ablation")
     ax.legend(frameon=False, fontsize=8)
-    fig.suptitle(f"{sample} tumors — HIF-α factor (single cohort)", y=0.98)
+    fig.suptitle(f"{cohort_name} tumors — HIF-α factor (single cohort)", y=0.98)
     fig.tight_layout()
     fig.savefig(out / f"{slug}_tumor_overview.png", dpi=140, bbox_inches="tight")
     plt.close(fig)
 
     n = len(cells)
     flip = float(np.mean(pheno != pheno0))
+    if intro is None:
+        intro = (
+            f"Sample `{cohort_name}`, lineage `{LINEAGE}`, spliced UMI ≥ {MIN_SPLICED:.0f}. "
+            "No second library. No forced phenotype. Parameters are estimated from these cells only. "
+            r"\(h\) is this cohort's own median/MAD. "
+            f"Persist means ≥1.5 MAD above a typical {cohort_name} tumor, not a comparison to another sample."
+        )
     lines = [
-        f"# {sample} tumors (single cohort)",
+        f"# {cohort_name} tumors (single cohort)",
         "",
-        f"Sample `{sample}`, lineage `{LINEAGE}`, spliced UMI ≥ {MIN_SPLICED:.0f}. "
-        "No second library. No forced phenotype. Parameters are estimated from these cells only. "
-        r"\(h\) is this cohort's own median/MAD. "
-        f"Persist means ≥1.5 MAD above a typical {sample} tumor, not a comparison to another sample.",
+        intro,
         "",
         "## QC",
         "",
@@ -340,10 +367,30 @@ def run(sample: str, slug: str, args: argparse.Namespace) -> None:
         "### Persist by Tirosh S quintile (with cycle in the model)",
         "",
     ]
-    try:
-        lines.append(pd.DataFrame(cycle_rows).to_markdown(index=False))
-    except Exception:
-        lines.append("```\n" + pd.DataFrame(cycle_rows).to_string(index=False) + "\n```")
+    lines.append(_md_table(pd.DataFrame(cycle_rows)))
+    if extra_cell_cols and "ocm_gate" in extra_cell_cols:
+        gate_rows = []
+        for gate, sub in cells.groupby("ocm_gate", sort=False):
+            gate_rows.append(
+                {
+                    "ocm_gate": str(gate),
+                    "n": int(len(sub)),
+                    "mean_h": float(sub["h"].mean()),
+                    "frac_persist": float(np.mean(sub["pheno"] == "persistent")),
+                    "mean_p_away": float(sub["p_away"].mean()),
+                    "median_spliced_umi": float(sub["spliced_umi"].median()),
+                }
+            )
+        gate_df = pd.DataFrame(gate_rows)
+        gate_df.to_csv(out / f"{slug}_tumor_gates.tsv", sep="\t", index=False)
+        lines += [
+            "",
+            "### Image-iT / OCM gates (not used in the fit)",
+            "",
+            "Gates are recorded after fitting. They do not define control vs exposed and do not enter \(h\) or \(\\xi\).",
+            "",
+            _md_table(gate_df),
+        ]
     top = genes.sort_values("beta", ascending=False).head(8)
     lines += [
         "",
