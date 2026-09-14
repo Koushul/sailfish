@@ -236,7 +236,7 @@ E14S = never-hypoxic control, E15S = hypoxia-exposed. Fits are lineage-specific 
 
 Lag still does not add a clear E15-specific reoxygenation wave (tumor \(p^{\mathrm{away}}\) \(0.16\) in E14 vs \(0.14\) in E15). Hard flux remains rare.
 
-Figures: `results/e14e15_tumor_overview.png`, `results/e14e15_neutrophil_overview.png`. Narrative: `results/e14e15.md`.
+Figures: `results/e14e15_tumor_overview.png`, `results/e14e15_neutrophil_overview.png`. Narrative: `results/e14e15.md`. Cross-dataset assessment: `results/assessment.md`.
 
 ---
 
