@@ -1,0 +1,28 @@
+{
+  "sample": "E29",
+  "mode": "ocm",
+  "output": "/ix1/ylee/kor11/A223/E29",
+  "alevin_fry_home": "/ix1/ylee/kor11/A223/af_home",
+  "threads": 16,
+  "min_gex_umi": 500,
+  "tools": {
+    "conda": "/ix1/ylee/kor11/tools/af_tutorial/conda_env"
+  },
+  "gex": {
+    "reads1": ["/ix1/ylee/shared/E1617293031/Y.Lee_10x_E1617293031_7_17_2026_fastq/E29_GEX_S4_R1_001.fastq.gz"],
+    "reads2": ["/ix1/ylee/shared/E1617293031/Y.Lee_10x_E1617293031_7_17_2026_fastq/E29_GEX_S4_R2_001.fastq.gz"],
+    "index": "/ix1/ylee/Palak/MC38/index/grcm39_splici/index",
+    "chemistry": "10xv3-5p"
+  },
+  "ocm": {
+    "samples": {
+      "OB1": "hypoxia_plus",
+      "OB2": "lactate_plus",
+      "OB3": "DN",
+      "OB4": "DP"
+    }
+  },
+  "cellranger": {
+    "per_sample_outs": "/ix1/ylee/Palak/cellranger_apps/ocm_e29/outs/per_sample_outs"
+  }
+}
