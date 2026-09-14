@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 from scipy.stats import mannwhitneyu, spearmanr
 
-from model import FLUX_STATES, STATE_NAMES
+from model import FLUX_STATES, STATE_NAMES, phenotype_calls
 
 
 def roc_auc(y_true: np.ndarray, scores: np.ndarray) -> float:
@@ -51,6 +51,7 @@ def evaluate_fit(data, truth: dict, est: dict) -> dict[str, float]:
     calls = est["state"]
     pheno = est["pheno"]
     p_state = est["p_state"]
+    gate = phenotype_calls(data.theta)
     mid = partial | t_out
 
     return {
@@ -70,6 +71,7 @@ def evaluate_fit(data, truth: dict, est: dict) -> dict[str, float]:
         "mean_p_away_control": float(est["p_away"][ctrl].mean()),
         "mean_p_toward_inducing": float(est["p_toward"][t_in].mean()) if t_in.any() else float("nan"),
         "fp_control": float(np.mean(np.isin(calls[ctrl], FLUX_STATES))),
+        "ctrl_persist_theta": float(np.mean(gate[ctrl] == "persistent")),
         "recall_partial": _rate(calls, partial, "partial"),
         "recall_transitioning_out": _rate(calls, t_out, "transitioning_out"),
         "recall_transitioning_in": _rate(calls, t_in, "transitioning_in"),

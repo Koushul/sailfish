@@ -162,6 +162,38 @@ def spliced_z(data: Data) -> np.ndarray:
     return np.clip((log1p_s - mu0) / sd0, -6.0, 6.0)
 
 
+def _balanced_cell_weights(exposed: np.ndarray) -> np.ndarray:
+    ctrl = exposed < 0.5
+    n = exposed.size
+    n0 = max(int(ctrl.sum()), 1)
+    n1 = max(int((~ctrl).sum()), 1)
+    w = np.empty(n, dtype=np.float64)
+    w[ctrl] = 0.5 * n / n0
+    w[~ctrl] = 0.5 * n / n1
+    return w
+
+
+def _logit(p: float) -> float:
+    p = float(np.clip(p, 1e-6, 1.0 - 1e-6))
+    return float(np.log(p / (1.0 - p)))
+
+
+def theta_from_control_h(h: np.ndarray, exposed: np.ndarray) -> dict:
+    """Map h (control MAD units) so never-hypoxic cells sit at high theta.
+
+    theta=0.7 at the control 90th percentile; theta=0.3 above the control
+    envelope. Persistent hypoxia is exceeding never-hypoxic variation, not
+    the upper half of a pooled distribution.
+    """
+    ctrl = exposed < 0.5
+    h_off = float(np.quantile(h[ctrl], 0.90))
+    h_on = max(float(np.quantile(h[ctrl], 0.99)), h_off + 0.75)
+    tau = max((h_on - h_off) / (_logit(0.7) - _logit(0.3)), 0.15)
+    h0 = h_off + tau * _logit(0.7)
+    theta = expit(-(h - h0) / tau)
+    return {"theta": theta, "h_lo": h_off, "h_hi": h_on, "h0": h0, "tau": tau}
+
+
 def hypoxia_factor(data: Data, n_iter: int = 50) -> dict:
     z = spliced_z(data)
     n, g = z.shape
@@ -175,9 +207,10 @@ def hypoxia_factor(data: Data, n_iter: int = 50) -> dict:
     h = z @ w
     h = (h - h.mean()) / (h.std() + EPS)
     ones = np.ones(n)
+    sw = np.sqrt(_balanced_cell_weights(data.exposed))[:, None]
     for _ in range(n_iter):
         H = np.column_stack([h, cs, cg, ones])
-        coef = np.linalg.lstsq(H, z, rcond=None)[0]
+        coef = np.linalg.lstsq(H * sw, z * sw, rcond=None)[0]
         beta = np.maximum(coef[0], 0.0)
         resid = z - cs[:, None] * coef[1] - cg[:, None] * coef[2] - coef[3]
         denom = float(np.dot(beta, beta) + 1e-6)
@@ -191,21 +224,13 @@ def hypoxia_factor(data: Data, n_iter: int = 50) -> dict:
     ctrl = data.exposed < 0.5
     if h[ctrl].mean() > h[~ctrl].mean():
         h = -h
-    mad = float(np.median(np.abs(h - np.median(h)))) + 1e-6
-    h = np.clip(h, np.median(h) - 8.0 * mad, np.median(h) + 8.0 * mad)
-    h = h - h.mean()
-    scale = h.std()
-    if scale > 1e-6:
-        h = h / scale
-    h_lo = float(np.median(h[ctrl]))
-    q = float(np.quantile(h[~ctrl], 0.75))
-    hi = (~ctrl) & (h >= q)
-    h_hi = float(np.median(h[hi])) if hi.any() else float(np.quantile(h[~ctrl], 0.9))
-    span = max(h_hi - h_lo, 1e-6)
-    h0 = 0.5 * (h_lo + h_hi)
-    tau = max(span / 6.0, 0.25)
-    theta = expit(-(h - h0) / tau)
-    return {"h": h, "theta": theta, "beta": beta, "h_lo": h_lo, "h_hi": h_hi}
+    h_als = h.copy()
+    h = h - float(np.median(h[ctrl]))
+    mad0 = float(np.median(np.abs(h[ctrl]))) + 1e-6
+    h = h / (1.4826 * mad0)
+    h = np.clip(h, -8.0, 8.0)
+    mapped = theta_from_control_h(h, data.exposed)
+    return {"h": h, "h_als": h_als, "beta": beta, **mapped}
 
 
 def phenotype_probs(h: np.ndarray, exposed: np.ndarray, n_iter: int = 40) -> np.ndarray:
@@ -235,7 +260,7 @@ def phenotype_probs(h: np.ndarray, exposed: np.ndarray, n_iter: int = 40) -> np.
 def annotate_phenotype(data: Data) -> dict:
     fac = hypoxia_factor(data)
     data.theta = fac["theta"]
-    p_pheno = phenotype_probs(fac["h"], data.exposed)
+    p_pheno = phenotype_probs(fac["h_als"], data.exposed)
     return {**fac, "p_pheno": p_pheno}
 
 

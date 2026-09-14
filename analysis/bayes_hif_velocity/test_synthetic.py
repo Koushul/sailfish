@@ -47,6 +47,7 @@ def main() -> int:
     print(f"mean p_toward t_in={m['mean_p_toward_inducing']:.3f}")
     print(f"mean |ξ| partial={m['mean_abs_xi_partial']:.3f} moving={m['mean_abs_xi_moving']:.3f}")
     print(f"control false flux rate: {m['fp_control']:.3f}")
+    print(f"control persist (θ-gate): {m['ctrl_persist_theta']:.3f}")
     print(f"final loss {m['loss_final']:.1f}  start {m['loss_start']:.1f}")
 
     ok = True
@@ -61,6 +62,7 @@ def main() -> int:
         (m["mean_abs_xi_moving"] > m["mean_abs_xi_partial"], "moving cells not larger |ξ| than partial"),
         (abs(m["spearman_cycle"]) < 0.35, "lag still tracks cell cycle"),
         (m["fp_control"] < 0.12, "control false flux rate too high"),
+        (m["ctrl_persist_theta"] < 0.08, "never-hypoxic control called persistent"),
         (m["loss_final"] < m["loss_start"], "loss did not decrease"),
         (m["theta_persist_recall"] > 0.45 and m["theta_reverted_recall"] > 0.45, "persist vs reverted failed"),
         (m["auc_reverting"] > 0.68, "reverting AUROC too low"),

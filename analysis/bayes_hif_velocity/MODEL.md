@@ -53,11 +53,15 @@ z_{ng}=\beta_g h_n+\gamma_g\tilde S_n+\delta_g\tilde G_n+\alpha_g+\varepsilon_{n
 \qquad \beta_g\ge 0.
 \]
 
-\(h_n\) is the shared residual HIF program after gene-specific cycle loadings. Genes with low cycle correlation (CA9, VEGFA, ADM, …) are up-weighted when initializing \(h\). Glycolysis still informs \(h\) through leftover coordinated variation. Sign: high \(h\) = HIF program on. Control cells pin the low-\(h\) end.
+\(h_n\) is the shared residual HIF program after gene-specific cycle loadings. Genes with low cycle correlation (CA9, VEGFA, ADM, …) are up-weighted when initializing \(h\). The least-squares fit balances total weight on control vs exposed so a 15:1 sample imbalance cannot turn \(h\) into exposed-only heterogeneity. Sign: high \(h\) = HIF program on.
+
+After fitting, \(h\) is **centered at the control median and scaled by the control MAD**. Never-hypoxic variation is the unit of \(h\). Then
 
 \[
-\theta_n=\frac{1}{1+\exp\bigl((h_n-h_0)/\tau\bigr)}.
+\theta_n=\frac{1}{1+\exp\bigl((h_n-h_0)/\tau\bigr)}
 \]
+
+with \(h_0,\tau\) set so \(\theta=0.7\) at the control 90th percentile and \(\theta=0.3\) at \(\max(\text{control 99th},\,h_{0.9}+0.75)\). Persistent hypoxia means exceeding the never-hypoxic envelope, not sitting above the control median. Control cells should be almost all HIF-off; a thin tail can be partial.
 
 Soft phenotype: a 3-component Gaussian mixture on \(h\) (control boosted on the low-\(h\) component) gives
 
@@ -222,11 +226,11 @@ Sweep (`benchmark_synthetic.py`, 3 seeds, overlapping states, discrete cycle, de
 
 E14S = never-hypoxic control, E15S = hypoxia-exposed. Fits are lineage-specific (`fit_e14e15.py`; tables in `results/e14e15_*.tsv`). Tirosh S/G2M is recomputed from spliced counts (the stored `cycle_s` column is tumor-only). Cell-wide spliced UMI floors: tumors \(\ge 5000\) (606 / 3085 dropped), neutrophils \(\ge 2000\) (219 / 1476 dropped). All 32 panel genes are present as mouse symbols; unspliced-sparse genes keep \(\lambda_g=0\) (23 velocity genes in tumors, 14 in neutrophils). *Car9* loads the tumor factor and lag; it is silent in neutrophils.
 
-On this object the 3-component GMM on \(h\) collapses the partial component. Reported phenotype uses the same \(\theta\le 0.3\) / \(\ge 0.7\) gate as the earlier tumor-only analysis. E15 tumors (n=2327): persist / partial / reverted \(\approx 27.5\% / 16.4\% / 56.2\%\), vs historical \(\theta\) gates \(30.3\% / 23.0\% / 46.7\%\) (71% cell-level agreement). E14 tumors (n=152) are not a clean never-hypoxic pile: \(\approx 21\%\) still gate as persistent, so a glycolytic HIF-like program is already on in some controls.
+\(\theta\) is anchored to the never-hypoxic envelope (control 90th \(\rightarrow 0.7\), above the control 99th \(\rightarrow 0.3\)). Calibrating to the control *median* was wrong: it called the upper tail of E14 glycolysis “persistent” (\(\sim 21\%\)). With the envelope, E14 tumors are \(1.3\%\) persistent / \(9.2\%\) partial / \(89.5\%\) reverted (n=152). E15 tumors (n=2327) are \(0.7\% / 9.7\% / 89.6\%\). The HIF-target panel is only weakly shifted in E15 vs E14 (mean per-gene \(z\sim +0.2\)), so almost all exposed cells sit inside never-hypoxic variation. Historical \(\theta\) gates that reported \(\sim 30\%\) E15 persist were the same median-anchored mistake; they are not used as labels here.
 
-Lag does **not** add a clear E15-specific reoxygenation wave. Tumor \(\mathbb{E}[\xi]\) is nearly uncorrelated with cycle (Spearman \(-0.03\)). Mean \(p^{\mathrm{away}}\) is similar in E14 (\(0.15\)) and E15 (\(0.13\)); hard flux is \(2.6\%\) of E14 and \(1.1\%\) of E15. Reverted E15 tumors have modestly higher \(p^{\mathrm{away}}\) (\(0.17\)) than persistent (\(0.09\)). \(\sigma_v\) sits at the upper clip (\(\approx 1.65\)).
+Lag does **not** add a clear E15-specific reoxygenation wave. Tumor \(\mathbb{E}[\xi]\) is nearly uncorrelated with cycle (Spearman \(-0.03\)). Mean \(p^{\mathrm{away}}\) is similar in E14 (\(0.15\)) and E15 (\(0.13\)); hard flux is \(0\) in E14 and \(0.3\%\) in E15. \(\sigma_v\) sits at the upper clip (\(\approx 1.65\)).
 
-Neutrophils have a weaker panel (no *Car9* unspliced; glycolysis + *Vegfa* / *Ndrg1* / *P4ha1* / *Egln3*). E15 θ-gates \(\approx 26\% / 21\% / 54\%\) persist / partial / reverted, but that is **not** tumor kinetics: \(h\) is weakly shifted, control \(p^{\mathrm{away}}\) is low (\(0.02\)), and hard flux is \(0\). Do not use neutrophil states as tumor labels.
+Neutrophils: E14 \(0.6\% / 9.4\% / 90.0\%\), E15 \(1.0\% / 11.2\% / 87.8\%\). Weaker panel (no *Car9* unspliced). Do not pool with tumors.
 
 Figures: `results/e14e15_tumor_overview.png`, `results/e14e15_neutrophil_overview.png`. Narrative: `results/e14e15.md`.
 

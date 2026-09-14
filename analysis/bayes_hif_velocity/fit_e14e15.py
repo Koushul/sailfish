@@ -214,6 +214,9 @@ def eval_lineage(df: pd.DataFrame, data: Data, est: dict, lineage: str) -> dict:
         "mean_p_away_control": float(df.loc[ctrl, "p_away"].mean()),
         "mean_p_toward_control": float(df.loc[ctrl, "p_toward"].mean()),
         "frac_hard_flux_control": float(np.mean(df.loc[ctrl, "state"].isin(FLUX_STATES))),
+        "e14_frac_persistent": float(np.mean(df.loc[ctrl, "pheno"] == "persistent")),
+        "e14_frac_partial": float(np.mean(df.loc[ctrl, "pheno"] == "partial")),
+        "e14_frac_reverted": float(np.mean(df.loc[ctrl, "pheno"] == "reverted")),
         "mean_p_away_exposed": float(df.loc[exp, "p_away"].mean()) if exp.any() else float("nan"),
         "mean_p_toward_exposed": float(df.loc[exp, "p_toward"].mean()) if exp.any() else float("nan"),
         "frac_hard_flux_exposed": float(np.mean(df.loc[exp, "state"].isin(FLUX_STATES))) if exp.any() else float("nan"),
@@ -368,7 +371,8 @@ def write_eval_md(path: Path, evals: list[dict], summaries: pd.DataFrame, qc: pd
     lines += [
         "## How to read this",
         "",
-        "- Primary phenotype is the theta 0.3 / 0.7 gate on the spliced HIF factor (same cuts as the earlier tumor-only analysis). The 3-component GMM is stored as pheno_gmm; it collapses partial when real h is overlapping.",
+        "- θ is anchored to the never-hypoxic envelope: 0.7 at the E14 90th percentile of h, 0.3 above the E14 99th. E14 should be almost all reverted, not 20% persistent.",
+        "- Primary phenotype is that θ gate. The 3-component GMM is stored as pheno_gmm.",
         "- Lag (xi, p_away, p_toward) is residual unspliced after library, capture, and cycle. Synthetic tests recovered rank of xi only weakly; report probabilities. If control p_away is high, do not read E15 flux as reoxygenation.",
         "- Neutrophils have lower UMI and a weaker HIF transcriptional program than MC38 tumors. A small persistent fraction there is not evidence they share tumor kinetics.",
         "- Historical `hypoxia_kinetics_state` / `theta_normoxic` on this object were tumor-only gates; they are compared only for tumors and are not used as labels for neutrophils.",
@@ -424,8 +428,8 @@ def main() -> None:
         plot_lineage(cells, genes, lineage, out_dir)
         e15_pheno = cells.loc[cells["exposed"] == 1, "pheno"].value_counts().to_dict()
         print(
-            f"{lineage}: n={len(cells)} E15 pheno {e15_pheno} "
-            f"flux_ctrl={ev['frac_hard_flux_control']:.3f} "
+            f"{lineage}: n={len(cells)} E14 persist={ev['e14_frac_persistent']:.3f} "
+            f"E15 pheno {e15_pheno} flux_ctrl={ev['frac_hard_flux_control']:.3f} "
             f"xi~cycle={ev['spearman_xi_cycle_s']:.3f}",
             flush=True,
         )
