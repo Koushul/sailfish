@@ -1,0 +1,30 @@
+{
+  "name": "a223_e29",
+  "description": "A223 E29 (5′ OCM GEX). hypoxia_plus is Image-iT LIVE Green ROS (DCF), not GFP and not HIF-α protein. DN is the never-hypoxic-like gate. Lineage is from tumor/neutrophil QC tables (not all droplets). DN n is below the recommended 40; control MAD and mean ξ are poorly identified. Do not pool with E27. Do not write into the h5ad.",
+  "h5ad": "/ix1/ylee/kor11/A223/E29/ocm/E29_gex_adt_ocm.h5ad",
+  "sample_col": "sample_id",
+  "lineage_col": null,
+  "gene_symbol_col": "gene_symbol",
+  "control_samples": ["DN"],
+  "exposed_samples": ["hypoxia_plus", "DP", "lactate_plus"],
+  "historical_state_col": null,
+  "historical_theta_col": null,
+  "require_all_panel": false,
+  "min_control": 3,
+  "qc_tables": [
+    {
+      "path": "/ix1/ylee/kor11/A223/tumor_kinetics/tumor_qc.csv",
+      "lane": "E29",
+      "lineage": "Tumor"
+    },
+    {
+      "path": "/ix1/ylee/kor11/A223/neutrophil_hypoxia/neutrophils.csv",
+      "lane": "E29",
+      "lineage": "neutrophil"
+    }
+  ],
+  "lineages": {
+    "Tumor": {"values": ["Tumor"], "min_spliced": 5000},
+    "neutrophil": {"values": ["neutrophil"], "min_spliced": 2000}
+  }
+}

@@ -37,7 +37,64 @@ from model import (
 
 ANCHOR_GENES = {"Car9", "Vegfa", "Adm", "Angptl4", "Bnip3", "Ndrg1", "Ddit4"}
 MIN_CONTROL_DEFAULT = 40
+RECOMMENDED_CONTROL = 40
 PHENO_ORDER = ("persistent", "partial", "reverted")
+
+
+def _arms(cfg: dict) -> tuple[list[str], list[str]]:
+    control = cfg.get("control_samples") or [cfg["control_sample"]]
+    exposed = cfg.get("exposed_samples") or [cfg["exposed_sample"]]
+    return [str(x) for x in control], [str(x) for x in exposed]
+
+
+def _barcode16(x) -> str:
+    s = str(x)
+    if s.startswith("E27_") or s.startswith("E29_"):
+        s = s.split("_", 1)[1]
+    return s.split("-")[0][:16]
+
+
+def overlay_qc_tables(placed, tables: list[dict]):
+    n = placed.cell_id.size
+    kix = {_barcode16(x): i for i, x in enumerate(placed.cell_id)}
+    lineage = np.array(["unlabeled"] * n, dtype=object)
+    sample = np.array(placed.sample, dtype=object, copy=True)
+    hist = np.array(placed.historical_state, dtype=object, copy=True)
+    theta = np.array(placed.historical_theta, dtype=np.float64, copy=True)
+    n_matched = 0
+    for spec in tables:
+        df = pd.read_csv(spec["path"])
+        lane = spec.get("lane")
+        if lane is not None and "lane" in df.columns:
+            df = df[df["lane"].astype(str) == str(lane)].copy()
+        bc_col = spec.get("barcode_col", "barcode16")
+        sample_col = spec.get("sample_col", "sample_id")
+        lin_fixed = spec.get("lineage")
+        lin_col = spec.get("lineage_col", "cell_group")
+        hist_col = spec.get("historical_state_col", "hif_state")
+        theta_col = spec.get("historical_theta_col", "theta_normoxic")
+        bc = df[bc_col].astype(str).map(_barcode16).to_numpy()
+        idx = np.array([kix.get(b, -1) for b in bc], dtype=np.int64)
+        ok = idx >= 0
+        n_matched += int(ok.sum())
+        ii = idx[ok]
+        pos = np.flatnonzero(ok)
+        if lin_fixed:
+            lineage[ii] = lin_fixed
+        elif lin_col in df.columns:
+            lineage[ii] = df.iloc[pos][lin_col].astype(str).to_numpy()
+        if sample_col in df.columns:
+            sample[ii] = df.iloc[pos][sample_col].astype(str).to_numpy()
+        if hist_col in df.columns:
+            hist[ii] = df.iloc[pos][hist_col].astype(str).to_numpy()
+        if theta_col in df.columns:
+            theta[ii] = pd.to_numeric(df.iloc[pos][theta_col], errors="coerce").to_numpy()
+    placed.cell_group = lineage
+    placed.sample = sample
+    placed.historical_state = hist
+    placed.historical_theta = theta
+    print(f"qc overlay matched {n_matched} table rows to {int((lineage != 'unlabeled').sum())} cells", flush=True)
+    return placed
 
 
 def parse_args() -> argparse.Namespace:
@@ -80,14 +137,14 @@ def subset_lineage(
     lineage: str,
     lineage_values: list[str],
     min_spliced: float,
-    control_sample: str,
-    exposed_sample: str,
+    control_samples: list[str],
+    exposed_samples: list[str],
 ) -> dict:
     in_lineage = np.isin(placed.cell_group, lineage_values)
-    sample_ok = np.isin(placed.sample, [control_sample, exposed_sample])
+    sample_ok = np.isin(placed.sample, control_samples + exposed_samples)
     umi_ok = placed.L >= min_spliced
     keep_cells = in_lineage & sample_ok & umi_ok
-    exposed = (placed.sample[keep_cells] == exposed_sample).astype(np.float64)
+    exposed = np.isin(placed.sample[keep_cells], exposed_samples).astype(np.float64)
     U = placed.U[keep_cells]
     S = placed.S[keep_cells]
     keep_g = gene_mask(U, exposed)
@@ -123,7 +180,7 @@ def subset_lineage(
     }
 
 
-def cell_table(placed, mask, data, est, lineage, control_sample, exposed_sample) -> pd.DataFrame:
+def cell_table(placed, mask, data, est, lineage, control_samples, exposed_samples) -> pd.DataFrame:
     idx = np.flatnonzero(mask)
     pheno = phenotype_calls(data.theta, data.exposed, force_control_reverted=True)
     pheno_emp = phenotype_calls(data.theta, data.exposed, force_control_reverted=False)
@@ -134,7 +191,7 @@ def cell_table(placed, mask, data, est, lineage, control_sample, exposed_sample)
             "lineage": lineage,
             "sample": placed.sample[idx],
             "cell_type": placed.cell_group[idx],
-            "exposed": (placed.sample[idx] == exposed_sample).astype(int),
+            "exposed": np.isin(placed.sample[idx], exposed_samples).astype(int),
             "spliced_umi": placed.L[idx],
             "h": est["h"],
             "theta": data.theta,
@@ -160,7 +217,7 @@ def cell_table(placed, mask, data, est, lineage, control_sample, exposed_sample)
     )
     for j, name in enumerate(STATE_NAMES):
         df[f"p_{name}"] = p_state[:, j]
-    df.attrs["control_sample"] = control_sample
+    df.attrs["control_samples"] = control_samples
     return df
 
 
@@ -249,6 +306,7 @@ def eval_lineage(df: pd.DataFrame, data: Data, est: dict, lineage: str) -> dict:
         else float("nan"),
         "control_gmm_frac_persistent": float(np.mean(df.loc[ctrl, "pheno_gmm"] == "persistent")) if ctrl.any() else float("nan"),
         "exposed_gmm_frac_persistent": float(np.mean(df.loc[exp, "pheno_gmm"] == "persistent")) if exp.any() else float("nan"),
+        "n_control_below_recommended": int(ctrl.sum()) < RECOMMENDED_CONTROL,
         "mean_p_away_exposed": float(df.loc[exp, "p_away"].mean()) if exp.any() else float("nan"),
         "mean_p_toward_exposed": float(df.loc[exp, "p_toward"].mean()) if exp.any() else float("nan"),
         "frac_hard_flux_exposed": float(np.mean(df.loc[exp, "state"].isin(FLUX_STATES))) if exp.any() else float("nan"),
@@ -268,6 +326,11 @@ def eval_lineage(df: pd.DataFrame, data: Data, est: dict, lineage: str) -> dict:
             if m.any():
                 out[f"exposed_mean_p_away_{lab}"] = float(df.loc[m, "p_away"].mean())
                 out[f"exposed_mean_p_toward_{lab}"] = float(df.loc[m, "p_toward"].mean())
+    for gate, sub in df.groupby("sample", sort=False):
+        out[f"gate_{gate}_n"] = int(len(sub))
+        out[f"gate_{gate}_frac_persistent_empirical"] = float(np.mean(sub["pheno_empirical"] == "persistent"))
+        out[f"gate_{gate}_mean_h"] = float(sub["h"].mean())
+        out[f"gate_{gate}_mean_p_away"] = float(sub["p_away"].mean())
     hist = df["historical_state"].astype(str).to_numpy()
     if exp.any() and np.any(hist != "NA"):
         mapped = np.array(
@@ -284,9 +347,9 @@ def eval_lineage(df: pd.DataFrame, data: Data, est: dict, lineage: str) -> dict:
     return out
 
 
-def plot_lineage(df: pd.DataFrame, gene_df: pd.DataFrame, lineage: str, name: str, control_sample: str, exposed_sample: str, out_dir: Path) -> None:
+def plot_lineage(df: pd.DataFrame, gene_df: pd.DataFrame, lineage: str, name: str, control_samples: list[str], exposed_samples: list[str], out_dir: Path) -> None:
     fig, axes = plt.subplots(2, 2, figsize=(10.5, 8.5))
-    samples = [control_sample, exposed_sample]
+    samples = [s for s in control_samples + exposed_samples if (df["sample"] == s).any()]
     colors = {"persistent": "#b2182b", "partial": "#f4a582", "reverted": "#2166ac"}
     ax = axes[0, 0]
     x = np.arange(len(samples))
@@ -296,7 +359,7 @@ def plot_lineage(df: pd.DataFrame, gene_df: pd.DataFrame, lineage: str, name: st
         ax.bar(x, h, bottom=bottom, color=colors[lab], label=lab)
         bottom += np.array(h)
     ax.set_xticks(x)
-    ax.set_xticklabels([f"{control_sample} control", f"{exposed_sample} exposed"])
+    ax.set_xticklabels(samples, rotation=20, ha="right")
     ax.set_ylabel("fraction")
     ax.set_title(f"{lineage} θ-gate (control forced reverted)")
     ax.set_ylim(0, 1)
@@ -311,15 +374,16 @@ def plot_lineage(df: pd.DataFrame, gene_df: pd.DataFrame, lineage: str, name: st
         ax.bar(x, h, bottom=bottom, color=cmap[i], label=lab, width=0.7)
         bottom += np.array(h)
     ax.set_xticks(x)
-    ax.set_xticklabels([f"{control_sample} control", f"{exposed_sample} exposed"])
+    ax.set_xticklabels(samples, rotation=20, ha="right")
     ax.set_ylabel("fraction")
     ax.set_title("hard joint state (use posteriors)")
     ax.set_ylim(0, 1)
     ax.legend(frameon=False, fontsize=7, loc="upper left", bbox_to_anchor=(1.02, 1))
 
     ax = axes[1, 0]
-    for sample, size in [(control_sample, 14), (exposed_sample, 8)]:
+    for sample in samples:
         sub = df[df["sample"] == sample]
+        size = 14 if sample in control_samples else 8
         if len(sub):
             ax.scatter(sub["theta"], sub["xi"], s=size, alpha=0.35, label=sample)
     ax.axhline(0.0, color="k", lw=0.6)
@@ -367,7 +431,7 @@ def write_report(path: Path, name: str, cfg: dict, evals: list[dict], summaries:
         "",
         cfg.get("description", ""),
         "",
-        f"Control sample `{cfg['control_sample']}`; exposed `{cfg['exposed_sample']}`. Forced control labels are design constraints. Empirical θ-gates on control are the diagnostic for circular persist calls.",
+        f"Control `{cfg.get('control_samples') or cfg.get('control_sample')}`; exposed `{cfg.get('exposed_samples') or cfg.get('exposed_sample')}`. Forced control labels are design constraints. Empirical θ-gates on control are the diagnostic for circular persist calls. DN n below {RECOMMENDED_CONTROL} means the control MAD for \(h\) is poorly identified — report empirical persist and do not over-read exposed persist.",
         "",
         "## QC",
         "",
@@ -408,19 +472,21 @@ def main() -> None:
     placed = load_counts(
         cfg["h5ad"],
         sample_col=cfg.get("sample_col", "sample"),
-        lineage_col=cfg.get("lineage_col", "cell_group"),
+        lineage_col=cfg.get("lineage_col"),
         gene_symbol_col=cfg.get("gene_symbol_col"),
         historical_state_col=cfg.get("historical_state_col"),
         historical_theta_col=cfg.get("historical_theta_col"),
         require_all_panel=bool(cfg.get("require_all_panel", False)),
     )
+    if cfg.get("qc_tables"):
+        overlay_qc_tables(placed, cfg["qc_tables"])
     print(
         f"{name}: {placed.cell_id.size} cells; Tirosh S {placed.n_s_genes} G2M {placed.n_g2m_genes}; "
         f"missing panel {placed.missing_panel}",
         flush=True,
     )
-    control_sample = cfg["control_sample"]
-    exposed_sample = cfg["exposed_sample"]
+    control_samples, exposed_samples = _arms(cfg)
+    min_control = int(cfg.get("min_control", args.min_control))
     summaries = []
     evals = []
     qc_rows = []
@@ -434,8 +500,8 @@ def main() -> None:
             lineage=lineage,
             lineage_values=values,
             min_spliced=min_spliced,
-            control_sample=control_sample,
-            exposed_sample=exposed_sample,
+            control_samples=control_samples,
+            exposed_samples=exposed_samples,
         )
         n_ctrl = sub["n_control"]
         n_exp = sub["n_exposed"]
@@ -452,8 +518,9 @@ def main() -> None:
             "n_velocity_genes": int((sub["data"].use_velocity > 0.5).sum()),
             "median_spliced_umi": float(np.median(sub["data"].L)) if sub["data"].U.shape[0] else float("nan"),
             "status": "fit",
+            "n_control_below_recommended": n_ctrl < RECOMMENDED_CONTROL,
         }
-        if n_ctrl < args.min_control:
+        if n_ctrl < min_control:
             row["status"] = "skip_n_control"
             qc_rows.append(row)
             skips.append(
@@ -462,10 +529,10 @@ def main() -> None:
                     "reason": "n_control below minimum for control MAD / xi pin",
                     "n_control": n_ctrl,
                     "n_exposed": n_exp,
-                    "min_control": args.min_control,
+                    "min_control": min_control,
                 }
             )
-            print(f"SKIP {lineage}: n_control={n_ctrl} < {args.min_control}", flush=True)
+            print(f"SKIP {lineage}: n_control={n_ctrl} < {min_control}", flush=True)
             continue
         if n_exp < 20:
             row["status"] = "skip_n_exposed"
@@ -476,15 +543,21 @@ def main() -> None:
                     "reason": "n_exposed too small",
                     "n_control": n_ctrl,
                     "n_exposed": n_exp,
-                    "min_control": args.min_control,
+                    "min_control": min_control,
                 }
             )
             print(f"SKIP {lineage}: n_exposed={n_exp}", flush=True)
             continue
+        if n_ctrl < RECOMMENDED_CONTROL:
+            print(
+                f"WARN {lineage}: n_control={n_ctrl} < {RECOMMENDED_CONTROL}; "
+                "control MAD / xi pin is poorly identified",
+                flush=True,
+            )
         qc_rows.append(row)
         data = sub["data"]
         est = fit(data, n_steps=args.n_steps, seed=args.seed)
-        cells = cell_table(placed, sub["mask"], data, est, lineage, control_sample, exposed_sample)
+        cells = cell_table(placed, sub["mask"], data, est, lineage, control_samples, exposed_samples)
         genes = gene_table(est, sub["keep_genes"], data.use_velocity, hypoxia_factor(data)["beta"])
         tag = lineage.lower().replace(" ", "_")
         cells.to_csv(out_dir / f"{name}_{tag}_cells.tsv", sep="\t", index=False)
@@ -496,7 +569,7 @@ def main() -> None:
         ev["n_velocity_genes"] = n_v
         ev["loss_final"] = float(est["loss"][-1])
         evals.append(ev)
-        plot_lineage(cells, genes, lineage, name, control_sample, exposed_sample, out_dir)
+        plot_lineage(cells, genes, lineage, name, control_samples, exposed_samples, out_dir)
         print(
             f"{lineage}: n={len(cells)} emp_ctrl_persist={ev['control_frac_persistent_empirical']:.3f} "
             f"exp_persist={ev.get('exposed_frac_persistent', float('nan')):.3f} "

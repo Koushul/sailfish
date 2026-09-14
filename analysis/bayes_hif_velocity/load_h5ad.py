@@ -106,10 +106,11 @@ def load_counts(
         cell_id = _obs_vector(obs, "_index")
         if sample_col not in obs:
             raise KeyError(f"obs is missing sample column {sample_col!r}")
-        if lineage_col not in obs:
-            raise KeyError(f"obs is missing lineage column {lineage_col!r}")
         sample = _obs_vector(obs, sample_col)
-        cell_group = _obs_vector(obs, lineage_col)
+        if lineage_col and lineage_col in obs:
+            cell_group = _obs_vector(obs, lineage_col)
+        else:
+            cell_group = np.array(["unlabeled"] * n_obs, dtype=object)
         hist_col = historical_state_col if historical_state_col and historical_state_col in obs else None
         hist_state = (
             _obs_vector(obs, hist_col) if hist_col else np.array(["NA"] * n_obs, dtype=object)
