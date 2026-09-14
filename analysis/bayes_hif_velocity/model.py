@@ -242,6 +242,15 @@ def fit(
     }
 
 
+FLUX_STATES = (
+    "persistent_exiting",
+    "persistent_deepening",
+    "transitioning_out",
+    "transitioning_in",
+    "reverted_entering",
+)
+
+
 def phenotype_calls(theta: np.ndarray) -> np.ndarray:
     out = np.array(["partial"] * theta.size, dtype=object)
     out[theta <= 0.3] = "persistent"
@@ -249,15 +258,42 @@ def phenotype_calls(theta: np.ndarray) -> np.ndarray:
     return out
 
 
-def direction_calls(theta: np.ndarray, p_away: np.ndarray, p_toward: np.ndarray, exposed: np.ndarray) -> np.ndarray:
+def flux_calls(
+    p_away: np.ndarray, p_toward: np.ndarray, exposed: np.ndarray
+) -> tuple[np.ndarray, float, float]:
     ctrl = exposed < 0.5
     q_away = float(np.quantile(p_away[ctrl], 0.95))
     q_toward = float(np.quantile(p_toward[ctrl], 0.95))
-    out = np.array(["partial"] * theta.size, dtype=object)
-    out[theta <= 0.3] = "persistent"
-    out[theta >= 0.7] = "reverted"
-    away = (p_away >= q_away) & (theta <= 0.7)
-    toward = (p_toward >= q_toward) & (theta >= 0.3)
-    out[away] = "reverting"
-    out[toward] = "inducing"
+    q_away = max(q_away, 0.8)
+    q_toward = max(q_toward, 0.8)
+    flux = np.array(["none"] * p_away.size, dtype=object)
+    away = p_away >= q_away
+    toward = p_toward >= q_toward
+    both = away & toward
+    flux[away] = "away"
+    flux[toward] = "toward"
+    if np.any(both):
+        pick_away = p_away[both] >= p_toward[both]
+        flux[np.flatnonzero(both)[pick_away]] = "away"
+        flux[np.flatnonzero(both)[~pick_away]] = "toward"
+    return flux, q_away, q_toward
+
+
+def state_calls(
+    theta: np.ndarray, p_away: np.ndarray, p_toward: np.ndarray, exposed: np.ndarray
+) -> np.ndarray:
+    ph = phenotype_calls(theta)
+    flux, _, _ = flux_calls(p_away, p_toward, exposed)
+    out = ph.copy()
+    out[(ph == "persistent") & (flux == "away")] = "persistent_exiting"
+    out[(ph == "persistent") & (flux == "toward")] = "persistent_deepening"
+    out[(ph == "partial") & (flux == "away")] = "transitioning_out"
+    out[(ph == "partial") & (flux == "toward")] = "transitioning_in"
+    out[(ph == "reverted") & (flux == "toward")] = "reverted_entering"
     return out
+
+
+def direction_calls(
+    theta: np.ndarray, p_away: np.ndarray, p_toward: np.ndarray, exposed: np.ndarray
+) -> np.ndarray:
+    return state_calls(theta, p_away, p_toward, exposed)

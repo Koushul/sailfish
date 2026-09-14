@@ -46,9 +46,10 @@ def main() -> int:
             rows.append(m)
             print(
                 f"{name:20s} seed={seed}  ρξ={m['spearman_xi']:.3f}  "
-                f"cycle={m['spearman_cycle']:.3f}  AUCrev={m['auc_reverting']:.3f}  "
-                f"AUCind={m['auc_inducing']:.3f}  θpersist={m['theta_persist_recall']:.3f}  "
-                f"θrev={m['theta_reverted_recall']:.3f}  fp0={m['fp_control']:.3f}"
+                f"AUCrev={m['auc_reverting']:.3f}  t_vs_part={m['auc_transition_vs_partial']:.3f}  "
+                f"part={m['recall_partial']:.3f}  t_out={m['recall_transitioning_out']:.3f}  "
+                f"t_in={m['recall_transitioning_in']:.3f}  θpart={m['theta_partial_recall']:.3f}  "
+                f"fp0={m['fp_control']:.3f}"
             )
             keys = list(m.keys())
 
@@ -80,8 +81,11 @@ def main() -> int:
     if mean("core_default", "spearman_xi") < 0.35:
         print("FAIL: core panel lag recovery")
         ok = False
-    if mean("core_default", "auc_reverting") < 0.65:
-        print("FAIL: core reverting AUROC")
+    if mean("core_default", "auc_transition_vs_partial") < 0.65:
+        print("FAIL: core cannot separate transitioning_out from partial")
+        ok = False
+    if mean("core_default", "recall_partial") < 0.2:
+        print("FAIL: core partial recall")
         ok = False
     if mean("scrambled_U", "spearman_xi") > mean("core_default", "spearman_xi") - 0.15:
         print("FAIL: scrambled unspliced should destroy lag recovery")

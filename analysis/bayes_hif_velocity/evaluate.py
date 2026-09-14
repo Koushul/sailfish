@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 from scipy.stats import mannwhitneyu, spearmanr
 
-from model import direction_calls, phenotype_calls
+from model import FLUX_STATES, phenotype_calls, state_calls
 
 
 def roc_auc(y_true: np.ndarray, scores: np.ndarray) -> float:
@@ -19,22 +19,32 @@ def roc_auc(y_true: np.ndarray, scores: np.ndarray) -> float:
     return float(u / (n_pos * n_neg))
 
 
+def _rate(pred: np.ndarray, mask: np.ndarray, label: str) -> float:
+    if not np.any(mask):
+        return float("nan")
+    return float(np.mean(pred[mask] == label))
+
+
 def evaluate_fit(data, truth: dict, est: dict) -> dict[str, float]:
     xi_hat = est["xi_mean"]
     xi = truth["xi"]
     rho, pval = spearmanr(xi_hat, xi)
     cycle_rho, _ = spearmanr(xi_hat, data.cycle_s)
     ctrl = data.exposed < 0.5
-    exp = ~ctrl
     kind = truth["kind"]
-    rev = kind == "reverting"
-    ind = kind == "inducing"
     persist = kind == "persist"
+    partial = kind == "partial"
     reverted = kind == "reverted"
-    rest_exp = exp & ~rev & ~ind
+    t_out = kind == "transitioning_out"
+    t_in = kind == "transitioning_in"
+    p_exit = kind == "persistent_exiting"
+    r_enter = kind == "reverted_entering"
+    moving = t_out | t_in | p_exit | r_enter
+    steady_exp = (~ctrl) & (kind == "partial")
 
-    calls = direction_calls(data.theta, est["p_away"], est["p_toward"], data.exposed)
+    calls = state_calls(data.theta, est["p_away"], est["p_toward"], data.exposed)
     pheno = phenotype_calls(data.theta)
+    mid = partial | t_out
 
     return {
         "n_cells": float(data.U.shape[0]),
@@ -44,18 +54,28 @@ def evaluate_fit(data, truth: dict, est: dict) -> dict[str, float]:
         "spearman_xi": float(rho),
         "spearman_xi_p": float(pval),
         "spearman_cycle": float(cycle_rho),
-        "auc_reverting": roc_auc(rev, est["p_away"]),
-        "auc_inducing": roc_auc(ind, est["p_toward"]),
-        "mean_p_away_reverting": float(est["p_away"][rev].mean()) if rev.any() else float("nan"),
+        "auc_reverting": roc_auc(t_out | p_exit, est["p_away"]),
+        "auc_inducing": roc_auc(t_in | r_enter, est["p_toward"]),
+        "auc_transition_vs_partial": roc_auc(t_out[mid], est["p_away"][mid]) if np.any(mid) else float("nan"),
+        "auc_partial_theta": roc_auc(partial, 1.0 - np.abs(2.0 * data.theta - 1.0)),
+        "mean_p_away_reverting": float(est["p_away"][t_out].mean()) if t_out.any() else float("nan"),
+        "mean_p_away_partial": float(est["p_away"][partial].mean()) if partial.any() else float("nan"),
         "mean_p_away_control": float(est["p_away"][ctrl].mean()),
-        "mean_p_toward_inducing": float(est["p_toward"][ind].mean()) if ind.any() else float("nan"),
-        "fp_control": float(np.mean(np.isin(calls[ctrl], ["reverting", "inducing"]))),
-        "recall_reverting": float(np.mean(calls[rev] == "reverting")) if rev.any() else float("nan"),
-        "recall_inducing": float(np.mean(calls[ind] == "inducing")) if ind.any() else float("nan"),
-        "theta_persist_recall": float(np.mean(pheno[persist] == "persistent")) if persist.any() else float("nan"),
-        "theta_reverted_recall": float(np.mean(pheno[reverted] == "reverted")) if reverted.any() else float("nan"),
+        "mean_p_toward_inducing": float(est["p_toward"][t_in].mean()) if t_in.any() else float("nan"),
+        "fp_control": float(np.mean(np.isin(calls[ctrl], FLUX_STATES))),
+        "recall_partial": _rate(calls, partial, "partial"),
+        "recall_transitioning_out": _rate(calls, t_out, "transitioning_out"),
+        "recall_transitioning_in": _rate(calls, t_in, "transitioning_in"),
+        "recall_persistent_exiting": _rate(calls, p_exit, "persistent_exiting"),
+        "recall_reverted_entering": _rate(calls, r_enter, "reverted_entering"),
+        "recall_reverting": _rate(calls, t_out, "transitioning_out"),
+        "recall_inducing": _rate(calls, t_in, "transitioning_in"),
+        "theta_persist_recall": _rate(pheno, persist, "persistent"),
+        "theta_partial_recall": _rate(pheno, partial, "partial"),
+        "theta_reverted_recall": _rate(pheno, reverted, "reverted"),
         "mean_abs_xi_control": float(np.mean(np.abs(xi_hat[ctrl]))),
-        "mean_abs_xi_steady_exposed": float(np.mean(np.abs(xi_hat[rest_exp]))) if rest_exp.any() else float("nan"),
+        "mean_abs_xi_partial": float(np.mean(np.abs(xi_hat[steady_exp]))) if steady_exp.any() else float("nan"),
+        "mean_abs_xi_moving": float(np.mean(np.abs(xi_hat[moving]))) if moving.any() else float("nan"),
         "loss_start": float(est["loss"][0]),
         "loss_final": float(est["loss"][-1]),
     }

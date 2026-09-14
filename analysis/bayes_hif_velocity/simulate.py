@@ -31,6 +31,9 @@ class SimConfig:
     phi: float = 8.0
     mean_library: float = 8000.0
     scramble_unspliced: bool = False
+    hif_spliced_scale: float = 3.0
+    cycle_on_spliced: float = 0.18
+    phi_spliced: float = 20.0
     seed: int = 0
 
 
@@ -129,40 +132,58 @@ def simulate(cfg: SimConfig | None = None, **kwargs) -> tuple[Data, dict]:
         names = [g.human for g in genes]
 
     h_latent = np.zeros(n)
-    h_latent[exposed < 0.5] = rng.normal(-1.2, 0.25, cfg.n_control)
+    h_latent[exposed < 0.5] = rng.normal(-1.55, 0.15, cfg.n_control)
     kind = rng.choice(
-        ["persist", "partial", "reverted", "reverting", "inducing"],
+        [
+            "persist",
+            "partial",
+            "reverted",
+            "transitioning_out",
+            "transitioning_in",
+            "persistent_exiting",
+            "reverted_entering",
+        ],
         size=cfg.n_exposed,
-        p=[0.28, 0.18, 0.34, 0.12, 0.08],
+        p=[0.22, 0.16, 0.26, 0.12, 0.08, 0.08, 0.08],
     )
     h_exp = np.empty(cfg.n_exposed)
     xi_true = np.zeros(n)
     for i, k in enumerate(kind):
         if k == "persist":
-            h_exp[i] = rng.normal(1.4, 0.3)
-        elif k == "partial":
-            h_exp[i] = rng.normal(0.2, 0.3)
-        elif k == "reverted":
-            h_exp[i] = rng.normal(-1.1, 0.3)
-        elif k == "reverting":
-            h_exp[i] = rng.normal(0.4, 0.35)
+            h_exp[i] = rng.normal(1.7, 0.18)
+        elif k == "persistent_exiting":
+            h_exp[i] = rng.normal(1.55, 0.18)
             xi_true[cfg.n_control + i] = rng.uniform(0.6, 1.3)
+        elif k == "partial":
+            h_exp[i] = rng.normal(0.05, 0.12)
+        elif k == "transitioning_out":
+            h_exp[i] = rng.normal(0.1, 0.12)
+            xi_true[cfg.n_control + i] = rng.uniform(0.6, 1.3)
+        elif k == "transitioning_in":
+            h_exp[i] = rng.normal(0.0, 0.12)
+            xi_true[cfg.n_control + i] = -rng.uniform(0.6, 1.3)
+        elif k == "reverted":
+            h_exp[i] = rng.normal(-1.5, 0.18)
         else:
-            h_exp[i] = rng.normal(-0.2, 0.35)
+            h_exp[i] = rng.normal(-1.35, 0.18)
             xi_true[cfg.n_control + i] = -rng.uniform(0.6, 1.3)
     h_latent[exposed > 0.5] = h_exp
     h_latent = h_latent + cfg.cycle_on_hif * cycle_s
 
-    L = rng.lognormal(np.log(cfg.mean_library), 0.35, n)
-    L[exposed < 0.5] *= rng.uniform(0.35, 0.55)
-    L = np.clip(L, 800, None)
+    L_bg = rng.lognormal(np.log(cfg.mean_library), 0.35, n)
+    L_bg[exposed < 0.5] *= rng.uniform(0.35, 0.55)
+    L_bg = np.clip(L_bg, 800, None)
 
-    z = h_latent[:, None] * (np.clip(w, 1e-8, None) / (w[:n_core].mean() if n_core else 1.0))[None, :]
+    z = cfg.hif_spliced_scale * h_latent[:, None] * (
+        np.clip(w, 1e-8, None) / (w[:n_core].mean() if n_core else 1.0)
+    )[None, :]
     z[:, n_core:] = 0.0
-    z = z + 0.4 * cycle_s[:, None] * (c_s / (np.abs(c_s).mean() + 1e-6))[None, :]
-    mean_s = L[:, None] * np.exp(z - 3.0) * expr[None, :]
-    S = rng.negative_binomial(phi, np.clip(phi / (phi + mean_s), 1e-4, 1 - 1e-4))
-    L_obs = np.maximum(S.sum(axis=1).astype(np.float64), 1.0)
+    z = z + cfg.cycle_on_spliced * cycle_s[:, None] * (c_s / (np.abs(c_s).mean() + 1e-6))[None, :]
+    phi_s = np.full(n_genes, cfg.phi_spliced)
+    mean_s = L_bg[:, None] * 0.003 * np.exp(z) * expr[None, :]
+    S = rng.negative_binomial(phi_s, np.clip(phi_s / (phi_s + mean_s), 1e-4, 1 - 1e-4))
+    L_obs = L_bg + S.sum(axis=1).astype(np.float64)
+    L_obs = np.maximum(L_obs, 1.0)
 
     log1p_s = np.log1p(S * (np.median(L_obs) / L_obs)[:, None])
     mu0 = log1p_s[exposed < 0.5].mean(axis=0)

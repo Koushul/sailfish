@@ -34,7 +34,7 @@ For one lineage after QC (minimum spliced UMI):
 - observed cell-cycle covariates \(\tilde S_n, \tilde G_n\) (Tirosh S and G2M, centered on the control);
 - optional extra covariates in \(x_n\) (the same linear slot).
 
-Spliced library \(L_n=\sum_g S_{ng}\) is treated as observed. Unspliced is **not** given its own library size (that confuses capture with kinetics).
+Spliced library \(L_n\) is the **cell-wide** spliced UMI count (not the sum over the HIF panel). Size-normalizing by the panel sum cancels a coordinated HIF program.
 
 ---
 
@@ -173,19 +173,40 @@ If all \(\lambda_g=0\) (no usable unspliced), set \(\xi_n=0\) and return \(\thet
 
 ---
 
-## 8. Direction calls
+## 8. Phenotype, flux, and joint states
 
-Let \(q_{95}^{0}(p^{\mathrm{away}})\) be the 95th percentile of \(p^{\mathrm{away}}\) among **control** cells (empirical null). Analogous for toward.
+Two axes are scored separately, then combined. \(\theta\) is the spliced HIF-α program (where the cell sits). \(\xi\) is residual unspliced lag (whether it is moving).
 
-| call | \(\theta\) | lag |
-|------|------------|-----|
-| persistent | \(\mathbb{E}[\theta]\le 0.3\) | neither tail exceeds the control 95th percentile |
-| reverted | \(\mathbb{E}[\theta]\ge 0.7\) | same |
-| partial | \(0.3<\mathbb{E}[\theta]<0.7\) | same |
-| reverting (away) | \(\mathbb{E}[\theta]\le 0.7\) | \(p^{\mathrm{away}}\ge q_{95}^{0}(p^{\mathrm{away}})\) |
-| inducing (toward) | \(\mathbb{E}[\theta]\ge 0.3\) | \(p^{\mathrm{toward}}\ge q_{95}^{0}(p^{\mathrm{toward}})\) |
+Phenotype from \(\theta\):
 
-Phenotype still blocks the wrong direction of travel (high \(\theta\) cannot be called reverting).
+| phenotype | \(\theta\) | meaning |
+|-----------|------------|---------|
+| persistent | \(\le 0.3\) | HIF program on |
+| partial | \((0.3,0.7)\) | intermediate / partially reverted program |
+| reverted | \(\ge 0.7\) | HIF program off |
+
+Flux from control-calibrated tails. Let \(q_{95}^{0}(p^{\mathrm{away}})\) be the 95th percentile of \(p^{\mathrm{away}}\) among control cells (empirical null). Analogous for toward.
+
+| flux | rule |
+|------|------|
+| away | \(p^{\mathrm{away}}\ge \max\bigl(q_{95}^{0}(p^{\mathrm{away}}),\,0.8\bigr)\) |
+| toward | \(p^{\mathrm{toward}}\ge \max\bigl(q_{95}^{0}(p^{\mathrm{toward}}),\,0.8\bigr)\) |
+| none | neither |
+
+Joint call (flux only changes the label when it is biologically possible at that \(\theta\)):
+
+| state | phenotype | flux | meaning |
+|-------|-----------|------|---------|
+| persistent | persistent | none | stable hypoxia |
+| persistent_exiting | persistent | away | still HIF-high spliced, transcription already shutting off |
+| persistent_deepening | persistent | toward | already HIF-high, still inducing |
+| partial | partial | none | **partially reverted**, no detectable flux |
+| transitioning_out | partial | away | leaving hypoxia through the intermediate |
+| transitioning_in | partial | toward | entering hypoxia through the intermediate |
+| reverted | reverted | none or away | stable reversion (away lag ignored once spliced is already off) |
+| reverted_entering | reverted | toward | spliced already reverted, transcription turning the program back on |
+
+Partial vs transitioning is the lag test: the same mid-\(\theta\) bin is **stuck intermediate** if \(\xi\approx 0\), and **in transit** if the control-calibrated tail fires.
 
 ---
 
@@ -197,8 +218,8 @@ Phenotype still blocks the wrong direction of travel (high \(\theta\) cannot be 
 4. Estimate \(\hat\kappa_g\) on exposed cells with \(\theta\) in the lowest quintile. Drop genes with unspliced detection below a floor, or with control/exposed \(\kappa\) ratio above a cap (capture, not kinetics).
 5. Run MAP (Adam, analytic gradients) on \(U\mid S,x,\theta\); Laplace for \(p^{\mathrm{away}}\).
 6. Pin control mean \(\xi\) to 0 at every optimization step.
-7. Calibrate direction calls on the control posterior tail.
-8. Write per-cell \(\theta\), \(\mathbb{E}[\xi]\), \(p^{\mathrm{away}}\), \(p^{\mathrm{toward}}\), and gene parameters \(\kappa_g,\lambda_g,c_g,\rho_g\).
+7. Calibrate flux tails on the control posterior; write phenotype, flux, and joint state.
+8. Write per-cell \(\theta\), \(\mathbb{E}[\xi]\), \(p^{\mathrm{away}}\), \(p^{\mathrm{toward}}\), joint state, and gene parameters \(\kappa_g,\lambda_g,c_g,\rho_g\).
 
 ---
 
@@ -206,11 +227,12 @@ Phenotype still blocks the wrong direction of travel (high \(\theta\) cannot be 
 
 - Control: fraction of confident toward/away calls near the nominal 5% tail.
 - Spearman \((\mathbb{E}[\xi],\tilde S)\) should be weak if cycle was absorbed in \(c_g\).
-- On synthetic HIF-α panels with known \(\xi^{\mathrm{true}}\): recover rank correlation of \(\mathbb{E}[\xi]\) vs truth; AUROC of \(p^{\mathrm{away}}\) for reverting cells and of \(p^{\mathrm{toward}}\) for inducing cells; spliced \(\theta\) should recover persistent vs reverted even when \(\xi\approx 0\).
+- On synthetic HIF-α panels with known states: recover rank correlation of \(\mathbb{E}[\xi]\) vs truth; AUROC of \(p^{\mathrm{away}}\) for cells leaving hypoxia and of \(p^{\mathrm{toward}}\) for cells entering; spliced \(\theta\) should recover persistent / **partial** / reverted when \(\xi\approx 0\); mid-\(\theta\) cells with true lag should be called transitioning, not partial.
+- If unspliced is permuted (independent of \(\theta\) by construction), lag recovery should collapse while partial vs persist/reverted from \(\theta\) remains.
 - If unspliced is permuted (independent of \(\theta\) by construction), lag recovery should collapse.
 - Cycle-only decoy genes added to the panel should not make \(\xi\) track S-phase.
 
-Sweep (`benchmark_synthetic.py`, 3 seeds): default 32-gene HIF-α panel recovers Spearman \(\hat\xi\) vs truth \(\approx 0.63\) and AUROC \(\approx 1\) for toward/away vs other cells; \(\theta\) recalls persistent \(\approx 0.61\) and reverted \(\approx 0.71\). High dropout, strong cycle, capture shift, and 10 cycle-only decoys do not break lag recovery. Weak lag lowers Spearman (one seed \(0.38\)). Permuting unspliced counts drops Spearman below 0 and AUROC to \(\sim 0.3\). Table: `results/synthetic_benchmark.tsv`.
+Sweep (`benchmark_synthetic.py`, 3 seeds): default panel Spearman \(\hat\xi\) vs truth \(\approx 0.72\); AUROC of \(p^{\mathrm{away}}\) for transitioning_out vs partial \(\approx 1\). Spliced \(\theta\) recovers persist/reverted near 1 and partial \(\approx 0.4{-}0.6\). Joint hard calls for partial vs transitioning_out are noisier than the AUROC (mid-\(\theta\) is a thin band). Weak lag drops transition recall; scrambled unspliced drops lag AUROC to \(\sim 0.5\) while \(\theta\) partial remains. Table: `results/synthetic_benchmark.tsv`.
 
 ---
 
