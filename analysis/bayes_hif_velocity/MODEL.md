@@ -242,11 +242,11 @@ Figures: `results/e14e15_tumor_overview.png`, `results/e14e15_neutrophil_overvie
 
 ## 12. Circularity and remaining datasets
 
-Audit: `results/critique.md`. Main issues: forced control labels; GMM vs θ-gate (neutrophil GMM collapsed); \(\kappa\) from low-\(\theta\) exposed; control mean \(\xi=0\) by construction while tumor \(p^{\mathrm{away}}\) is already \(\sim 0.16\); equal WLS weight on n=152 E14 tumors; Wagner is the same E14/E15 libraries; A223 DN n is too small to fit.
+Audit: `results/critique.md`. Main issues: forced control labels; GMM vs θ-gate (neutrophil GMM collapsed); \(\kappa\) from low-\(\theta\) exposed; control mean \(\xi=0\) by construction while tumor \(p^{\mathrm{away}}\) is already \(\sim 0.16\); equal WLS weight on n=152 E14 tumors; Wagner is the same E14/E15 libraries; A223 DN n is too small to identify persist even though the fit was run.
 
 **Wagner** (`fit_dataset.py` + `datasets/wagner.json`): pipeline replicate on `mc38_velocity.h5ad` (Ensembl + `gene_name`; Tumor ∪ Hypoxic Tumor ∪ Tumor Proliferating). *Lox* absent. Empirical E14 tumor persist \(11.5\%\) matches the placed object (\(11.2\%\)). E15 tumor persist is \(20\%\) here vs \(7.6\%\) on the placed object — UMI ratio is \(\sim 1\) here vs \(\sim 5\) there, so persist is not identified across processings. Old `hypoxia_state` is \(91\%\) persist on E15 tumors (23% agreement). Not an independent exposure. Tables: `results/wagner.md`.
 
-**A223**: skipped (`report_a223.py`, `results/a223.md`). DN tumors 13+12, neutrophils 4+3. DCF ≠ HIF. Do not borrow the E14 control location.
+**A223 E27 / E29** (`fit_a223.py`): fitted **separately** (3′ vs 5′). `hypoxia_plus` is DCF (ROS), not HIF. Lineage from QC barcodes, not all DN droplets. Tumor DN n=13 / 12; neutrophil DN n=4 / 3. Empirical tumor persist: E27 DCF+ \(35\%\), DP \(43\%\) vs E29 DCF+ \(6\%\), DP \(8\%\). Neutrophil exposed persist is \(72{-}95\%\) with a 3–4 cell control — MAD is unidentified. Lag is flat. Tables: `results/a223.md`. Do not borrow the E14 control location.
 
 Apply only where \(n_{\mathrm{control}}\ge 40\) per lineage and chemistry.
 

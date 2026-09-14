@@ -55,9 +55,9 @@ E14 tumors n=152 vs E15 n=2327, but WLS gives **equal total weight** to control 
 The fit is a **pipeline replicate**. Empirical control persist matches the placed object (11.5% vs 11.2%). Exposed persist does not (20% vs 7.6%), and neither does depth (UMI ratio 1.01 vs 4.8). Persist after hypoxia is not a stable number across the two objects. “Hypoxic Tumor” on E14 (n=299 before UMI filter) is a cluster name, not exposure.
 
 
-### 7. A223 cannot identify never-hypoxic persist
+### 7. A223 DN cannot identify never-hypoxic persist (fit anyway)
 
-DN (DCF− / double-neg) tumors: **13 (E27) + 12 (E29)**. DN neutrophils: **4 + 3**. The model needs a control median/MAD for \(h\) and a control mean for \(\xi\). n=12 is not that. Pooling 3′ (E27) and 5′ (E29) to get n=25 still mixes chemistry. **Do not transfer the E14 control location** onto this tumor. Skip persist/reverted gates until a real never-hypoxic arm exists. DCF+ vs DCF− is ROS, not HIF.
+DN (DCF−) tumors: **13 (E27) + 12 (E29)**. DN neutrophils: **4 + 3**. The model still ran per chemistry. It does not make persist identifiable. E27 tumors look \(35{-}43\%\) persist on DCF+/DP; E29 tumors look \(6{-}8\%\). Neutrophils on E29 are \(\sim 93\%\) persist because three DN cells set the MAD. DCF is ROS, not HIF. Do not transfer the E14 control location. Do not pool 3′ with 5′. Details: `results/a223.md`.
 
 ### 8. Historical object columns
 

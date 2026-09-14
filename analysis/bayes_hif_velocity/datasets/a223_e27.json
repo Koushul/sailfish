@@ -10,7 +10,7 @@
   "historical_state_col": null,
   "historical_theta_col": null,
   "require_all_panel": false,
-  "min_control": 3,
+  "min_control": 2,
   "qc_tables": [
     {
       "path": "/ix1/ylee/kor11/A223/tumor_kinetics/tumor_qc.csv",
@@ -25,6 +25,6 @@
   ],
   "lineages": {
     "Tumor": {"values": ["Tumor"], "min_spliced": 5000},
-    "neutrophil": {"values": ["neutrophil"], "min_spliced": 2000}
+    "neutrophil": {"values": ["neutrophil"], "min_spliced": 1500}
   }
 }
