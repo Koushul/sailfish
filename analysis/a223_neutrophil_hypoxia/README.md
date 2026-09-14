@@ -41,3 +41,19 @@ QC neutrophils (spliced UMI ≥ 1500): DCF+ n=272, DP n=111, DN n=4 (DN too smal
 E15 vs E14 neutrophils (same genes): priming **up** (AUROC 0.69), oxidase **down** (0.40), NRF2 not up (0.46). Hypoxia-sorted neutrophils look primed, not oxidase-high.
 
 Tables: `ros_rna_module_contrasts.csv`, `ros_rna_gene_medians.csv`.
+
+## Dye vs true hypoxia (DCF+ neutrophils)
+
+Hypothesis: neutrophils are FITC+/“hypoxia+” because they oxidize/handle Image-iT DCF, not because they sit in a HIF-high niche.
+
+| test | dye prediction | result | dye? |
+|------|----------------|--------|------|
+| vs never-hypoxic E14 neu | DCF+ ≈ E14 | DCF+ 44% persist (θ 0.60) vs E14 21% (θ 0.95); AUROC 0.63 | partial — more HIF than E14, not fully hypoxic |
+| DCF+-only vs DP (lactate) | DP is the hypoxic set | DP 62% persist (θ 0.04) vs DCF+ 44% (θ 0.60), p=1.3e-4 | **yes** |
+| Same DCF+ gate, Tumor-scale θ | neus more reverted | Tumor 25% persist (θ 0.87); neu 24% persist (θ **0.97**, 67% reverted) | partial |
+| Lineage vs HIF in DCF+ | neus enriched without HIF majority | neu OR 4.52 vs DN; only 44% of DCF+ neus HIF-persistent | **yes** |
+| Mpo/esterase vs HIF | dye genes up, HIF not | Mpo/esterase AUROC 0.50; HIF AUROC 0.43 (higher in DP) | partial |
+
+**Verdict:** DCF+ is a leaky hypoxia surrogate for neutrophils. Most DCF+-only neutrophils are HIF-reverted on the Tumor axis (median θ 0.97). HIF-persistent neutrophils concentrate in **DP** (DCF and lactate). Neutrophils are 4.5× over-represented in DCF+ anyway, which matches dye/ROS handling more than a HIF-high state. DCF+ is not identical to E14 (some extra HIF), so it is not pure false-positive dye with zero hypoxia biology.
+
+`python analysis/a223_neutrophil_hypoxia/dye_vs_hypoxia.py` → `dye_vs_hypoxia_tests.csv`.

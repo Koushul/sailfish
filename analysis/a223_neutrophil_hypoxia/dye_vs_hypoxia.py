@@ -137,6 +137,7 @@ def main() -> None:
     p_tum_dcf = persist(th_t[dcf_t.to_numpy()])
     p_tum_dp = persist(th_t[dp_t.to_numpy()])
 
+    th_n_t = neu_df["theta_normoxic"].to_numpy()
     add(
         "DCF+ neutrophils vs never-hypoxic E14 neutrophils (neu-scale θ)",
         "DCF+ ≈ E14 (reverted / HIF-low), not HIF-high",
@@ -152,11 +153,12 @@ def main() -> None:
         auroc_hif_DP_vs_DCF=auroc(hif_n[dp_n.to_numpy()], hif_n[dcf_n.to_numpy()]),
         mwu_p=mwu(hif_n[dp_n.to_numpy()], hif_n[dcf_n.to_numpy()]),
     )
+    p_neu_dcf_t = persist(th_n_t[dcf_n.to_numpy()])
     add(
-        "Same DCF+ gate: Tumor vs neutrophil HIF-persistent fraction",
-        "Tumors HIF-high, neutrophils not, if gate is not a shared hypoxic state",
-        f"DCF+ Tumor persist {100*p_tum_dcf:.1f}%; DCF+ neutrophil persist {100*p_dcf:.1f}% (neu-scale). DP Tumor {100*p_tum_dp:.1f}%; DP neutrophil {100*p_dp:.1f}%",
-        "yes" if abs(p_tum_dcf - p_dcf) > 0.05 else "no",
+        "Same DCF+ gate on Tumor-scale θ",
+        "Neutrophils more reverted than tumors if they entered the FITC gate by dye/ROS not HIF",
+        f"DCF+ Tumor persist {100*p_tum_dcf:.1f}% median θ {np.median(th_t[dcf_t]):.2f}; DCF+ neutrophil persist {100*p_neu_dcf_t:.1f}% median θ {np.median(th_n_t[dcf_n]):.2f} ({100*np.mean(th_n_t[dcf_n]>=T_HIGH):.1f}% reverted)",
+        "partial" if np.median(th_n_t[dcf_n]) > np.median(th_t[dcf_t]) else "no",
     )
     add(
         "Neutrophil overrepresentation in DCF+ vs HIF among DCF+ neutrophils",
@@ -196,7 +198,7 @@ def main() -> None:
         f"A223 DCF+\n(n={int(dcf_n.sum())})",
         f"A223 DP\n(n={int(dp_n.sum())})",
     ]
-    ax.boxplot(data, labels=labels, showfliers=False)
+    ax.boxplot(data, tick_labels=labels, showfliers=False)
     ax.axhline(T_LOW, color="#c0392b", ls="--", lw=1)
     ax.axhline(T_HIGH, color="#2980b9", ls="--", lw=1)
     ax.set_ylabel("θ (neutrophil HIF scale; high = reverted)")
