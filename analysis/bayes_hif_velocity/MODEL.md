@@ -38,26 +38,36 @@ Spliced library \(L_n\) is the **cell-wide** spliced UMI count (not the sum over
 
 ---
 
-## 3. Phenotype \(\theta\) (spliced only)
+## 3. Phenotype \(h,\theta\) (spliced factor)
 
-Size-normalize spliced to the median \(L_n\). For each gene,
+Size-normalize spliced to the median cell-wide \(L_n\) and control-standardize:
 
 \[
-z_{ng}=\frac{\log(1+s^{\mathrm{norm}}_{ng})-\mu_{g,0}}{\sigma_{g,0}},
+z_{ng}=\frac{\log(1+s^{\mathrm{norm}}_{ng})-\mu_{g,0}}{\sigma_{g,0}}.
 \]
 
-where \(\mu_{g,0},\sigma_{g,0}\) are the control mean and sd. With fixed non-negative weights \(w_g\) (normalized Cohen’s \(d\) of exposed vs control among HIF-α targets, clipped at 0),
+Fit a non-negative hypoxia factor (MAP least squares), **not** a global residualization of \(\theta\) on cycle:
 
 \[
-h_n=\sum_g w_g z_{ng},\qquad
+z_{ng}=\beta_g h_n+\gamma_g\tilde S_n+\delta_g\tilde G_n+\alpha_g+\varepsilon_{ng},
+\qquad \beta_g\ge 0.
+\]
+
+\(h_n\) is the shared residual HIF program after gene-specific cycle loadings. Genes with low cycle correlation (CA9, VEGFA, ADM, …) are up-weighted when initializing \(h\). Glycolysis still informs \(h\) through leftover coordinated variation. Sign: high \(h\) = HIF program on. Control cells pin the low-\(h\) end.
+
+\[
 \theta_n=\frac{1}{1+\exp\bigl((h_n-h_0)/\tau\bigr)}.
 \]
 
-Anchors: \(h_0\) is the midpoint of the control median of \(h\) and the exposed upper-quartile median of \(h\); \(\tau=|h_{\mathrm{hyp}}-h_{\mathrm{ctrl}}|/6\). High \(\theta\) = low HIF (reverted / never hypoxic). Low \(\theta\) = high HIF (persistent).
+Soft phenotype: a 3-component Gaussian mixture on \(h\) (control boosted on the low-\(h\) component) gives
 
-**Do not residualize cycle out of \(\theta\).** Glycolytic HIF targets are collinear with growth; subtracting S/G2M deletes the hypoxia axis. Cycle enters only the unspliced lag (below).
+\[
+\bigl(p^{\mathrm{persist}}_n,\,p^{\mathrm{partial}}_n,\,p^{\mathrm{reverted}}_n\bigr).
+\]
 
-\(\theta\) and \(w_g\) are **frozen** during velocity inference.
+Hard phenotype is \(\arg\max\) of those probabilities. Cycle is **not** subtracted from \(h\) by a single regression of the score on S/G2M.
+
+\(h\), \(\theta\), and the GMM are frozen during unspliced inference.
 
 ---
 
@@ -120,93 +130,66 @@ Priors (weakly informative):
 | \(\lambda_g=\mathrm{softplus}(\ell_g)\) | \(\ell_g\sim\mathcal{N}(0,1)\); \(\lambda_g=0\) if gene fails unspliced QC |
 | \(c_g\) | \(\mathcal{N}(0,0.3^2 I)\) |
 | \(\log\rho_{g,0}\) | \(\mathcal{N}(0,0.5^2)\) |
-| \(\log\sigma_v\) | \(\mathcal{N}(-2,0.5^2)\) |
+| \(\log\sigma_v\) | \(\mathcal{N}(-0.2,0.7^2)\) |
 | \(\log\phi_g\) (NB concentration) | \(\mathcal{N}(2,1^2)\) |
+| \(\mathrm{logit}\,\omega_g\) (zero inflation) | \(\mathcal{N}(-1.2,1^2)\) |
 | \(\hat\xi_n\) | \(\mathcal{N}(0,1)\) |
 
 ---
 
 ## 6. Likelihood
 
+Unspliced is **zero-inflated** negative binomial (dropout is not reversion):
+
 \[
-U_{ng}\sim\mathrm{NegBin}\bigl(\mu^u_{ng},\,\phi_g\bigr),
-\qquad
-\mathrm{Var}(U)=\mu+\mu^2/\phi.
+U_{ng}=0 \text{ with extra mass }\omega_g,\quad
+\text{else }U_{ng}\sim\mathrm{NegBin}(\mu^u_{ng},\phi_g).
 \]
 
-Spliced counts are conditioned on (they already defined \(\theta\)). The velocity information is only in \(U\mid S,x,\theta\).
+\[
+P(U=0)=\omega_g+(1-\omega_g)\,p_0(\mu,\phi),
+\qquad
+P(U=k>0)=(1-\omega_g)\,\mathrm{NB}(k\mid\mu,\phi).
+\]
+
+Spliced counts are conditioned on. Velocity is only in \(U\mid S,x,h\).
 
 ---
 
 ## 7. Inference
 
-Let \(z\) collect all parameters (\(\kappa,\lambda,c,\rho,a,\sigma_v,\phi,\hat\xi\)). Maximize the joint log posterior
+MAP of the ZINB posterior with Adam and analytic gradients. \(\xi\) is control-centered and cycle-orthogonal at every step. A spike-and-slab is **not** used as a MAP prior (it pinned \(\xi\) at 0). After MAP, a Laplace variance \(\mathrm{Var}(\xi_n)\) is combined with a three-component slab
 
 \[
-\mathcal{L}(z)=\sum_{n,g}\log\mathrm{NB}\bigl(U_{ng}\mid\mu^u_{ng}(z),\phi_g\bigr)+\log p(z)
+\xi\sim \pi_0\mathcal{N}(0,\tau_0^2)+\pi_+\mathcal{N}(+\mu,\tau_1^2)+\pi_-\mathcal{N}(-\mu,\tau_1^2)
 \]
 
-with Adam (analytic gradients; no finite differences). For \(\mathrm{NB}(k\mid\mu,\phi)\) with \(\mathrm{Var}=\mu+\mu^2/\phi\),
+with \(\mu=0.7\), \(\tau_0=0.28\), \(\tau_1=0.55\). Mixing weights \(\pi\) are empirical-Bayes from the Laplace posterior. Component posterior:
 
 \[
-\frac{\partial\log p}{\partial\log\mu}
-=(k-\mu)\,\frac{\phi}{\phi+\mu}.
+P(k\mid U)\propto \pi_k\,\mathcal{N}\bigl(\xi^{\mathrm{MAP}}_n; m_k,\,\mathrm{Var}(\xi_n)+\tau_k^2\bigr).
 \]
 
-The remaining chain rule through \(\log\mu^u\) is in the implementation (`model.py`). Identifiability \(\xi\leftarrow\xi-\mathrm{mean}_{\mathrm{control}}(\xi)\) is applied at every Adam step, and the control-mean subtraction is included in the \(\xi\) gradient.
+\(p^{\mathrm{away}}=P(+)\), \(p^{\mathrm{toward}}=P(-)\), \(p^{\mathrm{none}}=P(0)\).
 
-After the MAP \(\hat z\), cell-level uncertainty is a Laplace approximation treating other parameters as fixed:
-
-\[
-\mathrm{Var}(\xi_n)
-\approx
-\sigma_v^2\Big/\Big(1+\sum_g \lambda_g^2\,\frac{\phi_g\,\mu_{ng}}{\phi_g+\mu_{ng}}\Big),
-\]
-\[
-p^{\mathrm{away}}_n=\Pr(\xi_n>0\mid U)
-\approx 1-\Phi\bigl(0;\,\xi_n^{\mathrm{MAP}},\,\sqrt{\mathrm{Var}(\xi_n)}\bigr),
-\qquad
-p^{\mathrm{toward}}_n=1-p^{\mathrm{away}}_n.
-\]
-
-If all \(\lambda_g=0\) (no usable unspliced), set \(\xi_n=0\) and return \(\theta\)-only states.
+Joint state probability is the product of GMM phenotype and flux components (reverted \(\times\) away is folded into reverted). Hard call is \(\arg\max\). Use probabilities, not only hard labels.
 
 ---
 
 ## 8. Phenotype, flux, and joint states
 
-Two axes are scored separately, then combined. \(\theta\) is the spliced HIF-α program (where the cell sits). \(\xi\) is residual unspliced lag (whether it is moving).
+| state | phenotype component | flux component |
+|-------|---------------------|----------------|
+| persistent | persist | none |
+| persistent_exiting | persist | away |
+| persistent_deepening | persist | toward |
+| partial | partial | none |
+| transitioning_out | partial | away |
+| transitioning_in | partial | toward |
+| reverted | reverted | none or away |
+| reverted_entering | reverted | toward |
 
-Phenotype from \(\theta\):
-
-| phenotype | \(\theta\) | meaning |
-|-----------|------------|---------|
-| persistent | \(\le 0.3\) | HIF program on |
-| partial | \((0.3,0.7)\) | intermediate / partially reverted program |
-| reverted | \(\ge 0.7\) | HIF program off |
-
-Flux from control-calibrated tails. Let \(q_{95}^{0}(p^{\mathrm{away}})\) be the 95th percentile of \(p^{\mathrm{away}}\) among control cells (empirical null). Analogous for toward.
-
-| flux | rule |
-|------|------|
-| away | \(p^{\mathrm{away}}\ge \max\bigl(q_{95}^{0}(p^{\mathrm{away}}),\,0.8\bigr)\) |
-| toward | \(p^{\mathrm{toward}}\ge \max\bigl(q_{95}^{0}(p^{\mathrm{toward}}),\,0.8\bigr)\) |
-| none | neither |
-
-Joint call (flux only changes the label when it is biologically possible at that \(\theta\)):
-
-| state | phenotype | flux | meaning |
-|-------|-----------|------|---------|
-| persistent | persistent | none | stable hypoxia |
-| persistent_exiting | persistent | away | still HIF-high spliced, transcription already shutting off |
-| persistent_deepening | persistent | toward | already HIF-high, still inducing |
-| partial | partial | none | **partially reverted**, no detectable flux |
-| transitioning_out | partial | away | leaving hypoxia through the intermediate |
-| transitioning_in | partial | toward | entering hypoxia through the intermediate |
-| reverted | reverted | none or away | stable reversion (away lag ignored once spliced is already off) |
-| reverted_entering | reverted | toward | spliced already reverted, transcription turning the program back on |
-
-Partial vs transitioning is the lag test: the same mid-\(\theta\) bin is **stuck intermediate** if \(\xi\approx 0\), and **in transit** if the control-calibrated tail fires.
+Partial vs transitioning is the **flux posterior**, not a \(\theta\in(0.3,0.7)\) cut.
 
 ---
 
@@ -214,11 +197,11 @@ Partial vs transitioning is the lag test: the same mid-\(\theta\) bin is **stuck
 
 1. QC cells in one lineage by spliced UMI.
 2. Score Tirosh S/G2M; center on control.
-3. Restrict to the HIF-α target panel; build \(\theta\) from those spliced counts (frozen weights).
-4. Estimate \(\hat\kappa_g\) on exposed cells with \(\theta\) in the lowest quintile. Drop genes with unspliced detection below a floor, or with control/exposed \(\kappa\) ratio above a cap (capture, not kinetics).
-5. Run MAP (Adam, analytic gradients) on \(U\mid S,x,\theta\); Laplace for \(p^{\mathrm{away}}\).
-6. Pin control mean \(\xi\) to 0 at every optimization step.
-7. Calibrate flux tails on the control posterior; write phenotype, flux, and joint state.
+3. Restrict to the HIF-α panel; fit the spliced hypoxia factor and GMM phenotype.
+4. Estimate \(\hat\kappa_g\) on exposed cells with low \(\theta\).
+5. MAP ZINB lag (Adam); Laplace + spike-slab for flux probabilities.
+6. Pin control mean \(\xi\) to 0; orthogonalize \(\xi\) to cycle.
+7. Write posterior phenotype, flux, joint state, and \(\mathbb{E}[\xi]\).
 8. Write per-cell \(\theta\), \(\mathbb{E}[\xi]\), \(p^{\mathrm{away}}\), \(p^{\mathrm{toward}}\), joint state, and gene parameters \(\kappa_g,\lambda_g,c_g,\rho_g\).
 
 ---
@@ -227,12 +210,11 @@ Partial vs transitioning is the lag test: the same mid-\(\theta\) bin is **stuck
 
 - Control: fraction of confident toward/away calls near the nominal 5% tail.
 - Spearman \((\mathbb{E}[\xi],\tilde S)\) should be weak if cycle was absorbed in \(c_g\).
-- On synthetic HIF-α panels with known states: recover rank correlation of \(\mathbb{E}[\xi]\) vs truth; AUROC of \(p^{\mathrm{away}}\) for cells leaving hypoxia and of \(p^{\mathrm{toward}}\) for cells entering; spliced \(\theta\) should recover persistent / **partial** / reverted when \(\xi\approx 0\); mid-\(\theta\) cells with true lag should be called transitioning, not partial.
-- If unspliced is permuted (independent of \(\theta\) by construction), lag recovery should collapse while partial vs persist/reverted from \(\theta\) remains.
-- If unspliced is permuted (independent of \(\theta\) by construction), lag recovery should collapse.
-- Cycle-only decoy genes added to the panel should not make \(\xi\) track S-phase.
+- On synthetic HIF-α panels: GMM should recover partial vs persist/reverted; flux AUROC should separate transitioning_out from partial; control false-flux low; scrambled \(U\) should destroy lag AUROC.
+- Weak lag (true \(\xi\) scaled \(\sim 0.4\)) is below detection — report probabilities, do not force hard transition calls.
+- Strong cycle should not delete the GMM partial component if CA9/VEGFA-like anchors are in the panel.
 
-Sweep (`benchmark_synthetic.py`, 3 seeds): default panel Spearman \(\hat\xi\) vs truth \(\approx 0.72\); AUROC of \(p^{\mathrm{away}}\) for transitioning_out vs partial \(\approx 1\). Spliced \(\theta\) recovers persist/reverted near 1 and partial \(\approx 0.4{-}0.6\). Joint hard calls for partial vs transitioning_out are noisier than the AUROC (mid-\(\theta\) is a thin band). Weak lag drops transition recall; scrambled unspliced drops lag AUROC to \(\sim 0.5\) while \(\theta\) partial remains. Table: `results/synthetic_benchmark.tsv`.
+Sweep (`benchmark_synthetic.py`, 3 seeds, overlapping states, discrete cycle, decoys, dropout, mixed lag): realistic Spearman \(\hat\xi\sim 0.24{-}0.32\); transitioning_out vs partial AUROC \(\sim 0.93\); GMM partial recall \(\sim 0.9\); inducing AUROC \(\sim 0.69{-}0.77\); control false flux \(\sim 1\%\). Hard `transitioning_out` recall stays low (\(\sim 0.1\)); use \(p^{\mathrm{away}}\). Strong cycle: partial phenotype holds (\(\sim 0.8{-}0.93\)), lag Spearman collapses. Weak lag: not recovered. Scrambled \(U\): lag AUROC \(\sim 0.5\). Table: `results/synthetic_benchmark.tsv`.
 
 ---
 

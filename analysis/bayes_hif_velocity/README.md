@@ -1,6 +1,13 @@
 # Bayesian 1-D hypoxia velocity
 
-See `MODEL.md` for the HIF-α target panel, generative model, MAP + Laplace fit, and direction calls. The gene list is `hif_targets.tsv`.
+See `MODEL.md` for the HIF-α panel, spliced factor + GMM phenotype, ZINB lag, and Laplace spike-slab flux posteriors. Gene list: `hif_targets.tsv`.
+
+```bash
+/ix1/ylee/kor11/tools/af_tutorial/conda_env/bin/python analysis/bayes_hif_velocity/test_synthetic.py
+/ix1/ylee/kor11/tools/af_tutorial/conda_env/bin/python analysis/bayes_hif_velocity/benchmark_synthetic.py
+```
+
+Synthetic cells have overlapping HIF programs, discrete G1/S/G2M, cycle-only decoys, silent targets, mixed weak/strong lag, capture shift, and unspliced dropout. Trust posterior probabilities more than hard `transitioning_out` labels.
 
 ```bash
 /ix1/ylee/kor11/tools/af_tutorial/conda_env/bin/python analysis/bayes_hif_velocity/test_synthetic.py

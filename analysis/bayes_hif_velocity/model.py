@@ -1,13 +1,31 @@
 #!/usr/bin/env python3
-"""Negative-binomial lag model: MAP + Laplace posterior for residual hypoxia lag ξ."""
+"""HIF-α program factor + spike-slab unspliced lag (MAP, Laplace, mixture posterior)."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
-from scipy.special import expit
+from scipy.special import expit, logsumexp
+from scipy.stats import norm
 
 EPS = 1e-8
+STATE_NAMES = (
+    "persistent",
+    "persistent_exiting",
+    "persistent_deepening",
+    "partial",
+    "transitioning_out",
+    "transitioning_in",
+    "reverted",
+    "reverted_entering",
+)
+FLUX_STATES = (
+    "persistent_exiting",
+    "persistent_deepening",
+    "transitioning_out",
+    "transitioning_in",
+    "reverted_entering",
+)
 
 
 def softplus(x: np.ndarray) -> np.ndarray:
@@ -17,6 +35,12 @@ def softplus(x: np.ndarray) -> np.ndarray:
 
 def d_softplus(x: np.ndarray) -> np.ndarray:
     return expit(x)
+
+
+def softmax(logp: np.ndarray, axis: int = -1) -> np.ndarray:
+    a = logp - np.max(logp, axis=axis, keepdims=True)
+    e = np.exp(a)
+    return e / np.clip(e.sum(axis=axis, keepdims=True), EPS, None)
 
 
 @dataclass
@@ -30,6 +54,7 @@ class Data:
     exposed: np.ndarray
     use_velocity: np.ndarray
     log_kappa0: np.ndarray
+    anchor: np.ndarray = field(default_factory=lambda: np.array([]))
 
 
 def pack_sizes(n: int, g: int) -> list[tuple[str, int]]:
@@ -42,6 +67,8 @@ def pack_sizes(n: int, g: int) -> list[tuple[str, int]]:
         ("log_rho0", g),
         ("log_sigma_v", 1),
         ("log_phi", g),
+        ("ell_omega", g),
+        ("flux_logits", 3),
         ("xi_hat", n),
     ]
 
@@ -55,21 +82,19 @@ def split(vec: np.ndarray, n: int, g: int) -> dict[str, np.ndarray]:
     return out
 
 
-def n_params(n: int, g: int) -> int:
-    return sum(s for _, s in pack_sizes(n, g))
-
-
 def init_loc(data: Data) -> np.ndarray:
     n, g = data.U.shape
     p = {
         "log_kappa": data.log_kappa0.copy(),
-        "ell_lambda": np.zeros(g),
+        "ell_lambda": np.full(g, 0.4),
         "c_s": np.zeros(g),
         "c_g2m": np.zeros(g),
         "c_r": np.zeros(g),
         "log_rho0": np.zeros(g),
-        "log_sigma_v": np.array([-2.0]),
+        "log_sigma_v": np.array([-0.2]),
         "log_phi": np.full(g, 2.0),
+        "ell_omega": np.full(g, -1.2),
+        "flux_logits": np.array([0.8, 0.0, 0.0]),
         "xi_hat": np.zeros(n),
     }
     return np.concatenate([p[k] for k, _ in pack_sizes(n, g)])
@@ -77,8 +102,7 @@ def init_loc(data: Data) -> np.ndarray:
 
 def cycle_design(data: Data) -> np.ndarray:
     x = np.column_stack([data.cycle_s, data.cycle_g2m])
-    x = x - x.mean(axis=0, keepdims=True)
-    return x
+    return x - x.mean(axis=0, keepdims=True)
 
 
 def residualize_cycle(v: np.ndarray, data: Data) -> np.ndarray:
@@ -87,15 +111,30 @@ def residualize_cycle(v: np.ndarray, data: Data) -> np.ndarray:
     return v - x @ coef
 
 
-def xi_from(p: dict, data: Data) -> tuple[np.ndarray, np.ndarray, float]:
-    sigma = float(np.exp(np.clip(p["log_sigma_v"][0], -8.0, 2.0)))
+def mix_params(p: dict) -> tuple[np.ndarray, float, float, float]:
+    pi = softmax(p["flux_logits"][None, :])[0]
+    return pi, 0.7, 0.28, 0.55
+
+
+def xi_from(p: dict, data: Data) -> tuple[np.ndarray, float]:
+    sigma = float(np.exp(np.clip(p["log_sigma_v"][0], -4.0, 2.0)))
     raw = residualize_cycle(sigma * p["xi_hat"], data)
     ctrl = data.exposed < 0.5
-    cmean = float(raw[ctrl].mean())
-    return raw - cmean, raw, sigma
+    return raw - float(raw[ctrl].mean()), sigma
 
 
-def mu_from(p: dict, data: Data, xi: np.ndarray) -> np.ndarray:
+def mixture_logp(xi: np.ndarray, pi: np.ndarray, mu: float, t0: float, t1: float):
+    means = np.array([0.0, mu, -mu])
+    var = np.array([t0**2, t1**2, t1**2])
+    x = xi[:, None]
+    log_comp = np.log(pi + EPS) - 0.5 * np.log(2.0 * np.pi * var) - 0.5 * (x - means) ** 2 / var
+    log_mix = logsumexp(log_comp, axis=1)
+    resp = softmax(log_comp, axis=1)
+    grad = (resp * (means - x) / var).sum(axis=1)
+    return log_mix, grad, resp
+
+
+def mu_from(p: dict, data: Data, xi: np.ndarray):
     lam = softplus(p["ell_lambda"]) * data.use_velocity
     kappa = np.exp(np.clip(p["log_kappa"], -8.0, 8.0))
     rho0 = np.exp(np.clip(p["log_rho0"], -4.0, 4.0))
@@ -114,19 +153,96 @@ def mu_from(p: dict, data: Data, xi: np.ndarray) -> np.ndarray:
     return np.exp(np.clip(log_mu, -20.0, 20.0)), lam, kappa, rho0
 
 
+def spliced_z(data: Data) -> np.ndarray:
+    scale = np.median(data.L) / np.clip(data.L, 1.0, None)
+    log1p_s = np.log1p(data.S * scale[:, None])
+    ctrl = data.exposed < 0.5
+    mu0 = log1p_s[ctrl].mean(axis=0)
+    sd0 = np.clip(log1p_s[ctrl].std(axis=0), 1e-6, None)
+    return (log1p_s - mu0) / sd0
+
+
+def hypoxia_factor(data: Data, n_iter: int = 50) -> dict:
+    z = spliced_z(data)
+    n, g = z.shape
+    cs, cg = data.cycle_s, data.cycle_g2m
+    corr = np.array(
+        [abs(np.corrcoef(z[:, j], cs)[0, 1]) if z[:, j].std() > 1e-8 else 1.0 for j in range(g)]
+    )
+    anchor = data.anchor if data.anchor.size == g else np.ones(g)
+    w = anchor / (0.3 + corr)
+    w = w / np.clip(w.sum(), EPS, None)
+    h = z @ w
+    h = (h - h.mean()) / (h.std() + EPS)
+    ones = np.ones(n)
+    for _ in range(n_iter):
+        H = np.column_stack([h, cs, cg, ones])
+        coef = np.linalg.lstsq(H, z, rcond=None)[0]
+        beta = np.maximum(coef[0], 0.0)
+        resid = z - cs[:, None] * coef[1] - cg[:, None] * coef[2] - coef[3]
+        denom = float(np.dot(beta, beta) + 1e-6)
+        h = resid @ beta / denom
+        h = h - h.mean()
+        scale = h.std()
+        if scale > 1e-6:
+            h = h / scale
+            beta = beta * scale
+    ctrl = data.exposed < 0.5
+    if h[ctrl].mean() > h[~ctrl].mean():
+        h = -h
+    h_lo = float(np.median(h[ctrl]))
+    q = float(np.quantile(h[~ctrl], 0.75))
+    hi = (~ctrl) & (h >= q)
+    h_hi = float(np.median(h[hi])) if hi.any() else float(np.quantile(h[~ctrl], 0.9))
+    span = max(h_hi - h_lo, 1e-6)
+    h0 = 0.5 * (h_lo + h_hi)
+    tau = span / 6.0
+    theta = 1.0 / (1.0 + np.exp((h - h0) / tau))
+    return {"h": h, "theta": theta, "beta": beta, "h_lo": h_lo, "h_hi": h_hi}
+
+
+def phenotype_probs(h: np.ndarray, exposed: np.ndarray, n_iter: int = 40) -> np.ndarray:
+    ctrl = exposed < 0.5
+    mu = np.array(
+        [float(np.median(h[ctrl])), float(np.median(h)), float(np.quantile(h[~ctrl], 0.85))]
+    )
+    mu.sort()
+    var = np.full(3, max(float(h.var()), 0.05))
+    pi = np.array([0.4, 0.3, 0.3])
+    boost = np.array([8.0, 1.0, 0.4])
+    for _ in range(n_iter):
+        log_comp = np.log(pi + EPS) - 0.5 * np.log(2 * np.pi * var) - 0.5 * (h[:, None] - mu) ** 2 / var
+        log_comp[ctrl] += np.log(boost)
+        r = softmax(log_comp, axis=1)
+        nk = np.clip(r.sum(axis=0), 1e-3, None)
+        pi = nk / nk.sum()
+        mu = (r * h[:, None]).sum(axis=0) / nk
+        var = np.clip((r * (h[:, None] - mu) ** 2).sum(axis=0) / nk, 0.02, 4.0)
+        order = np.argsort(mu)
+        mu, var, pi = mu[order], var[order], pi[order]
+    log_comp = np.log(pi + EPS) - 0.5 * np.log(2 * np.pi * var) - 0.5 * (h[:, None] - mu) ** 2 / var
+    resp = softmax(log_comp, axis=1)
+    return np.column_stack([resp[:, 2], resp[:, 1], resp[:, 0]])
+
+
+def annotate_phenotype(data: Data) -> dict:
+    fac = hypoxia_factor(data)
+    data.theta = fac["theta"]
+    p_pheno = phenotype_probs(fac["h"], data.exposed)
+    return {**fac, "p_pheno": p_pheno}
+
+
 def objective_and_grad(vec: np.ndarray, data: Data) -> tuple[float, np.ndarray]:
     n, g = data.U.shape
     p = split(vec, n, g)
-    xi, raw, sigma = xi_from(p, data)
-    mu, lam, kappa, rho0 = mu_from(p, data, xi)
+    xi, sigma = xi_from(p, data)
+    mu, lam, _, _ = mu_from(p, data, xi)
     phi = np.exp(np.clip(p["log_phi"], -2.0, 8.0))
-    phi_b = phi[None, :]
-    resid = (data.U - mu) * phi_b / (phi_b + mu)
-    nll = -nb_ll(data.U, mu, phi)
+    omega = expit(p["ell_omega"])
+    nll, dlogmu, d_om = zinb_nll_and_dlogmu(data.U, mu, phi, omega)
     npri = -log_prior(p, data)
     loss = nll + npri
 
-    dlogmu = resid
     g_xi = (dlogmu * lam[None, :]).sum(axis=1)
     ctrl = data.exposed < 0.5
     n0 = float(ctrl.sum())
@@ -143,14 +259,49 @@ def objective_and_grad(vec: np.ndarray, data: Data) -> tuple[float, np.ndarray]:
         "c_g2m": (dlogmu * data.cycle_g2m[:, None]).sum(axis=0) - p["c_g2m"] / (0.3**2),
         "c_r": (dlogmu * data.exposed[:, None]).sum(axis=0) - p["c_r"] / (0.3**2),
         "log_rho0": (dlogmu * (1.0 - data.exposed)[:, None]).sum(axis=0) - p["log_rho0"] / (0.5**2),
-        "log_sigma_v": np.array([np.dot(g_xi, p["xi_hat"]) * sigma])
-        - (p["log_sigma_v"] + 2.0) / (0.5**2),
+        "log_sigma_v": np.array([np.dot(g_xi, p["xi_hat"]) * sigma]) - (p["log_sigma_v"] + 0.2) / (0.7**2),
         "log_phi": d_log_phi(data.U, mu, phi) - (p["log_phi"] - 2.0),
+        "ell_omega": d_om * omega * (1.0 - omega) - (p["ell_omega"] + 1.2),
+        "flux_logits": -(p["flux_logits"] - np.array([0.8, 0.0, 0.0])) / 1.5,
         "xi_hat": g_xi * sigma - p["xi_hat"],
     }
-
     gvec = np.concatenate([grads[k] for k, _ in pack_sizes(n, g)])
     return float(loss), -gvec
+
+
+def zinb_nll_and_dlogmu(U: np.ndarray, mu: np.ndarray, phi: np.ndarray, omega: np.ndarray):
+    phi_b = phi[None, :]
+    om = np.clip(omega, 1e-5, 1 - 1e-5)
+    om_b = om[None, :]
+    p0 = np.exp(phi_b * (np.log(phi_b) - np.log(phi_b + mu)))
+    p0 = np.clip(p0, EPS, 1.0)
+    zero = U <= 0.0
+    pos = ~zero
+    mix0 = om_b + (1.0 - om_b) * p0
+    ll = np.where(pos, np.log(1.0 - om_b), np.log(np.clip(mix0, EPS, None)))
+    nll = -float(np.sum(ll) + nb_ll_pos(U, mu, phi, pos))
+    dlog = np.zeros_like(mu)
+    resid = (U - mu) * phi_b / (phi_b + mu)
+    dlog = np.where(pos, resid, 0.0)
+    w0 = ((1.0 - om_b) * p0) / np.clip(mix0, EPS, None)
+    dlogp0 = -phi_b * mu / (phi_b + mu)
+    dlog = np.where(zero, w0 * dlogp0, dlog)
+    d_om = ((1.0 - p0) / np.clip(mix0, EPS, None) * zero).sum(axis=0)
+    d_om += -(pos.sum(axis=0) / np.clip(1.0 - om, EPS, None))
+    return nll, dlog, d_om
+
+
+def nb_ll_pos(k: np.ndarray, mu: np.ndarray, phi: np.ndarray, pos: np.ndarray) -> float:
+    from scipy.special import gammaln
+
+    mu = np.clip(mu, EPS, 1e12)
+    phi = np.clip(phi, 1e-3, 1e6)
+    phi_b = phi[None, :]
+    p = phi_b / (phi_b + mu)
+    npar = phi_b
+    ll = gammaln(k + npar) - gammaln(npar) - gammaln(k + 1.0) + npar * np.log(np.clip(p, EPS, 1.0))
+    ll = ll + k * np.log(np.clip(1.0 - p, EPS, 1.0))
+    return float(np.sum(ll[pos]))
 
 
 def d_log_phi(k: np.ndarray, mu: np.ndarray, phi: np.ndarray) -> np.ndarray:
@@ -186,19 +337,58 @@ def log_prior(p: dict, data: Data) -> float:
     lp += -0.5 * np.sum(p["ell_lambda"] ** 2)
     lp += -0.5 * np.sum((p["c_s"] / 0.3) ** 2 + (p["c_g2m"] / 0.3) ** 2 + (p["c_r"] / 0.3) ** 2)
     lp += -0.5 * np.sum((p["log_rho0"] / 0.5) ** 2)
-    lp += -0.5 * ((p["log_sigma_v"][0] + 2.0) / 0.5) ** 2
+    lp += -0.5 * ((p["log_sigma_v"][0] + 0.2) / 0.7) ** 2
     lp += -0.5 * np.sum(((p["log_phi"] - 2.0) / 1.0) ** 2)
     lp += -0.5 * np.sum(p["xi_hat"] ** 2)
+    lp += -0.5 * np.sum(((p["ell_omega"] + 1.2) / 1.0) ** 2)
     lp += -1e6 * np.sum(p["ell_lambda"][~data.use_velocity.astype(bool)] ** 2)
     return float(lp)
 
 
-def fit(
-    data: Data,
-    n_steps: int = 600,
-    lr: float = 0.05,
-    seed: int = 0,
-) -> dict:
+def flux_posterior(xi: np.ndarray, sd: np.ndarray, pi: np.ndarray, mu: float, t0: float, t1: float):
+    means = np.array([0.0, mu, -mu])
+    var = np.array([t0**2, t1**2, t1**2]) + sd[:, None] ** 2
+    logp = np.log(pi + EPS) - 0.5 * np.log(2 * np.pi * var) - 0.5 * (xi[:, None] - means) ** 2 / var
+    return softmax(logp, axis=1)
+
+
+def joint_state_probs(p_pheno: np.ndarray, p_flux: np.ndarray) -> np.ndarray:
+    p_per, p_par, p_rev = p_pheno[:, 0], p_pheno[:, 1], p_pheno[:, 2]
+    p_none, p_away, p_tow = p_flux[:, 0], p_flux[:, 1], p_flux[:, 2]
+    cols = [
+        p_per * p_none,
+        p_per * p_away,
+        p_per * p_tow,
+        p_par * p_none,
+        p_par * p_away,
+        p_par * p_tow,
+        p_rev * (p_none + p_away),
+        p_rev * p_tow,
+    ]
+    p = np.column_stack(cols)
+    p = p / np.clip(p.sum(axis=1, keepdims=True), EPS, None)
+    return p
+
+
+def state_from_probs(p_state: np.ndarray) -> np.ndarray:
+    idx = np.argmax(p_state, axis=1)
+    return np.array([STATE_NAMES[i] for i in idx], dtype=object)
+
+
+def phenotype_from_probs(p_pheno: np.ndarray) -> np.ndarray:
+    names = np.array(["persistent", "partial", "reverted"], dtype=object)
+    return names[np.argmax(p_pheno, axis=1)]
+
+
+def fit(data: Data, n_steps: int = 550, lr: float = 0.04, seed: int = 0) -> dict:
+    ph = annotate_phenotype(data)
+    ctrl = data.exposed < 0.5
+    low_th = (~ctrl) & (data.theta <= np.quantile(data.theta[~ctrl], 0.2))
+    if not np.any(low_th):
+        low_th = ~ctrl
+    kappa_hat = (data.U[low_th].mean(axis=0) + 1e-3) / (data.S[low_th].mean(axis=0) + 1e-3)
+    data.log_kappa0 = np.log(np.clip(kappa_hat, 1e-4, 10.0))
+
     n, g = data.U.shape
     x = init_loc(data)
     m1 = np.zeros_like(x)
@@ -216,21 +406,34 @@ def fit(
         x = x - lr * mh / (np.sqrt(vh) + aeps)
         hist.append(loss)
     p = split(x, n, g)
-    xi, _, sigma = xi_from(p, data)
+    xi, sigma = xi_from(p, data)
     mu, lam, _, _ = mu_from(p, data, xi)
     phi = np.exp(np.clip(p["log_phi"], -2.0, 8.0))
     fish = ((phi[None, :] * mu) / (phi[None, :] + mu) * (lam[None, :] ** 2)).sum(axis=1)
-    var = 1.0 / np.clip(fish + 1.0, 1e-6, None)
-    sd = np.sqrt(var) * sigma
-    from scipy.stats import norm
-
-    p_away = 1.0 - norm.cdf(0.0, loc=xi, scale=np.clip(sd, 1e-4, 10.0))
-    p_toward = 1.0 - p_away
+    var = 1.0 / np.clip(fish + 1.0 / max(sigma**2, 1e-4), 1e-6, None)
+    sd = np.sqrt(var)
+    pi = np.array([0.7, 0.15, 0.15])
+    mu_f, t0, t1 = 0.7, 0.28, 0.55
+    for _ in range(25):
+        p_flux = flux_posterior(xi, sd, pi, mu_f, t0, t1)
+        pi = 0.85 * p_flux.mean(axis=0) + 0.15 * np.array([0.7, 0.15, 0.15])
+        pi = pi / pi.sum()
+    p_flux = flux_posterior(xi, sd, pi, mu_f, t0, t1)
+    p_state = joint_state_probs(ph["p_pheno"], p_flux)
+    gauss_away = 1.0 - norm.cdf(0.0, loc=xi, scale=np.clip(sd, 1e-4, 10.0))
     return {
         "params": p,
         "xi_mean": xi,
-        "p_away": p_away,
-        "p_toward": p_toward,
+        "p_away": p_flux[:, 1],
+        "p_toward": p_flux[:, 2],
+        "p_none": p_flux[:, 0],
+        "p_flux": p_flux,
+        "p_pheno": ph["p_pheno"],
+        "p_state": p_state,
+        "state": state_from_probs(p_state),
+        "pheno": phenotype_from_probs(ph["p_pheno"]),
+        "h": ph["h"],
+        "gauss_p_away": gauss_away,
         "xi_sd": sd,
         "loss": hist,
         "lambda": lam,
@@ -239,16 +442,9 @@ def fit(
         "c_s": p["c_s"],
         "c_g2m": p["c_g2m"],
         "sigma_v": sigma,
+        "pi_flux": pi,
+        "mu_flux": mu_f,
     }
-
-
-FLUX_STATES = (
-    "persistent_exiting",
-    "persistent_deepening",
-    "transitioning_out",
-    "transitioning_in",
-    "reverted_entering",
-)
 
 
 def phenotype_calls(theta: np.ndarray) -> np.ndarray:
@@ -258,42 +454,15 @@ def phenotype_calls(theta: np.ndarray) -> np.ndarray:
     return out
 
 
-def flux_calls(
-    p_away: np.ndarray, p_toward: np.ndarray, exposed: np.ndarray
-) -> tuple[np.ndarray, float, float]:
-    ctrl = exposed < 0.5
-    q_away = float(np.quantile(p_away[ctrl], 0.95))
-    q_toward = float(np.quantile(p_toward[ctrl], 0.95))
-    q_away = max(q_away, 0.8)
-    q_toward = max(q_toward, 0.8)
-    flux = np.array(["none"] * p_away.size, dtype=object)
-    away = p_away >= q_away
-    toward = p_toward >= q_toward
-    both = away & toward
-    flux[away] = "away"
-    flux[toward] = "toward"
-    if np.any(both):
-        pick_away = p_away[both] >= p_toward[both]
-        flux[np.flatnonzero(both)[pick_away]] = "away"
-        flux[np.flatnonzero(both)[~pick_away]] = "toward"
-    return flux, q_away, q_toward
-
-
 def state_calls(
     theta: np.ndarray, p_away: np.ndarray, p_toward: np.ndarray, exposed: np.ndarray
 ) -> np.ndarray:
-    ph = phenotype_calls(theta)
-    flux, _, _ = flux_calls(p_away, p_toward, exposed)
-    out = ph.copy()
-    out[(ph == "persistent") & (flux == "away")] = "persistent_exiting"
-    out[(ph == "persistent") & (flux == "toward")] = "persistent_deepening"
-    out[(ph == "partial") & (flux == "away")] = "transitioning_out"
-    out[(ph == "partial") & (flux == "toward")] = "transitioning_in"
-    out[(ph == "reverted") & (flux == "toward")] = "reverted_entering"
-    return out
+    p_none = np.clip(1.0 - p_away - p_toward, 0.0, 1.0)
+    p_flux = np.column_stack([p_none, p_away, p_toward])
+    h_proxy = -np.log(np.clip(theta, 1e-6, 1 - 1e-6) / np.clip(1.0 - theta, 1e-6, None))
+    p_pheno = phenotype_probs(h_proxy, exposed)
+    return state_from_probs(joint_state_probs(p_pheno, p_flux))
 
 
-def direction_calls(
-    theta: np.ndarray, p_away: np.ndarray, p_toward: np.ndarray, exposed: np.ndarray
-) -> np.ndarray:
+def direction_calls(theta, p_away, p_toward, exposed):
     return state_calls(theta, p_away, p_toward, exposed)
