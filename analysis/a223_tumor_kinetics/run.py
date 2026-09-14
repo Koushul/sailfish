@@ -239,7 +239,7 @@ def main() -> None:
     sub_plot["label"] = sub_plot["palak_cell_type"].str.replace("Tumor ", "", regex=False)
     plot_stacked(
         sub_plot,
-        "A223 Tumor 1-D states by Palak subtype",
+        "A223 Tumor 1-D states by Tumor subtype",
         out / "stacked_by_subtype.png",
     )
 
@@ -260,7 +260,7 @@ def main() -> None:
         "",
         "Same Tumor HIF-down axis as E14/E15 (`θ_normoxic`), **θ-only** gates",
         f"(persistent ≤ {THETA_LO}, reverted ≥ {THETA_HI}). No velocity.",
-        "QC: Palak `Tumor`, spliced UMI ≥ 5000. High θ = low HIF / reverted.",
+        "QC: annotated `Tumor`, spliced UMI ≥ 5000. High θ = low HIF / reverted.",
         "",
         f"- A223 pooled QC Tumor **n={a223_row['n_qc']}**: "
         f"**{a223_row['persistent_pct']:.1f}% persistent**, "

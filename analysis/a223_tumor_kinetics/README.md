@@ -1,11 +1,11 @@
 # A223 tumor 1-D HIF persistence (E27 / E29)
 
-Applies the E14/E15 Tumor HIF-down 1-D axis (`θ_normoxic`, logistic calibration on E14 Tumor) to Palak-labeled Tumor cells.
+Applies the E14/E15 Tumor HIF-down 1-D axis (`θ_normoxic`, logistic calibration on E14 Tumor) to annotated Tumor cells.
 
 - Persistent: `θ ≤ 0.3` (high HIF)
 - Partial: `0.3 < θ < 0.7`
 - Reverted: `θ ≥ 0.7` (low HIF)
-- QC: Palak `Tumor`, spliced UMI ≥ 5000
+- QC: annotated `Tumor`, spliced UMI ≥ 5000
 - θ-only (no RNA velocity). Do not use neutrophil-run `hif_state` (neu-scale).
 
 ```bash
@@ -36,13 +36,13 @@ OCM gates (DN and lactate+ Tumor n are tiny):
 | DN | 25 | 16.0% | 76.0% |
 | lactate+ | 12 | 0.0% | 91.7% |
 
-Palak `Tumor (hypoxic)` is the HIF-high subset: **59.3% persistent**, median θ **0.15** (n=1640). Proliferating / epithelial / ribo-high tumors are mostly reverted.
+Annotated `Tumor (hypoxic)` is the HIF-high subset: **59.3% persistent**, median θ **0.15** (n=1640). Proliferating / epithelial / ribo-high tumors are mostly reverted.
 
 ## Why cell cycle, and with vs without it
 
 Glycolytic HIF targets (`Ldha`, `Eno1`, `Pgk1`) are also growth genes. On E14 Tumor, `Ldha` spliced vs Tirosh S/G2M has R² ≈ 0.16. scVelo on E14/E15 tracks S-phase (v_cycle vs S r = 0.50), which is why cycle is scored as a **covariate** and residualized only for velocity — not subtracted from θ. Residualizing those genes from θ would throw out the hypoxia program (it is collinear with growth).
 
-In A223 that collinearity is spatial/niche, not “cycling = HIF-high”: Palak proliferating tumors have the **highest** S score (median 0.15) and are **mostly reverted** (19% persistent). Hypoxic tumors have low S (0.04) and 59% persistent. Growing cells are the oxygenated pool.
+In A223 that collinearity is spatial/niche, not “cycling = HIF-high”: proliferating tumors have the **highest** S score (median 0.15) and are **mostly reverted** (19% persistent). Hypoxic tumors have low S (0.04) and 59% persistent. Growing cells are the oxygenated pool.
 
 ```bash
 /ix1/ylee/kor11/tools/af_tutorial/conda_env/bin/python analysis/a223_tumor_kinetics/cycle_ablation.py
