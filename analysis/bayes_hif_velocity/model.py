@@ -117,7 +117,7 @@ def mix_params(p: dict) -> tuple[np.ndarray, float, float, float]:
 
 
 def xi_from(p: dict, data: Data) -> tuple[np.ndarray, float]:
-    sigma = float(np.exp(np.clip(p["log_sigma_v"][0], -4.0, 2.0)))
+    sigma = float(np.exp(np.clip(p["log_sigma_v"][0], -3.0, 0.5)))
     raw = residualize_cycle(sigma * p["xi_hat"], data)
     ctrl = data.exposed < 0.5
     return raw - float(raw[ctrl].mean()), sigma
@@ -159,7 +159,7 @@ def spliced_z(data: Data) -> np.ndarray:
     ctrl = data.exposed < 0.5
     mu0 = log1p_s[ctrl].mean(axis=0)
     sd0 = np.clip(log1p_s[ctrl].std(axis=0), 1e-6, None)
-    return (log1p_s - mu0) / sd0
+    return np.clip((log1p_s - mu0) / sd0, -6.0, 6.0)
 
 
 def hypoxia_factor(data: Data, n_iter: int = 50) -> dict:
@@ -187,17 +187,24 @@ def hypoxia_factor(data: Data, n_iter: int = 50) -> dict:
         if scale > 1e-6:
             h = h / scale
             beta = beta * scale
+    beta = np.clip(beta, 0.0, 8.0)
     ctrl = data.exposed < 0.5
     if h[ctrl].mean() > h[~ctrl].mean():
         h = -h
+    mad = float(np.median(np.abs(h - np.median(h)))) + 1e-6
+    h = np.clip(h, np.median(h) - 8.0 * mad, np.median(h) + 8.0 * mad)
+    h = h - h.mean()
+    scale = h.std()
+    if scale > 1e-6:
+        h = h / scale
     h_lo = float(np.median(h[ctrl]))
     q = float(np.quantile(h[~ctrl], 0.75))
     hi = (~ctrl) & (h >= q)
     h_hi = float(np.median(h[hi])) if hi.any() else float(np.quantile(h[~ctrl], 0.9))
     span = max(h_hi - h_lo, 1e-6)
     h0 = 0.5 * (h_lo + h_hi)
-    tau = span / 6.0
-    theta = 1.0 / (1.0 + np.exp((h - h0) / tau))
+    tau = max(span / 6.0, 0.25)
+    theta = expit(-(h - h0) / tau)
     return {"h": h, "theta": theta, "beta": beta, "h_lo": h_lo, "h_hi": h_hi}
 
 

@@ -18,7 +18,16 @@ from scipy.stats import spearmanr
 
 from hif_targets import core_targets
 from load_h5ad import PlacedCounts, load_placed
-from model import FLUX_STATES, STATE_NAMES, Data, fit, hypoxia_factor
+from model import (
+    FLUX_STATES,
+    STATE_NAMES,
+    Data,
+    fit,
+    hypoxia_factor,
+    joint_state_probs,
+    phenotype_calls,
+    state_from_probs,
+)
 
 DEFAULT_H5AD = "/ix1/ylee/kor11/MC38/E14SE15S/E14SE15S_gex_adt_placed.h5ad"
 CONTROL_SAMPLE = "E14S"
@@ -99,8 +108,14 @@ def subset_lineage(placed: PlacedCounts, lineage: str, min_spliced: float) -> di
     }
 
 
+def _onehot_pheno(pheno: np.ndarray) -> np.ndarray:
+    names = ("persistent", "partial", "reverted")
+    return np.column_stack([(pheno == n).astype(np.float64) for n in names])
+
+
 def cell_table(placed: PlacedCounts, mask: np.ndarray, data: Data, est: dict, lineage: str) -> pd.DataFrame:
     idx = np.flatnonzero(mask)
+    p_state = joint_state_probs(_onehot_pheno(phenotype_calls(data.theta)), est["p_flux"])
     df = pd.DataFrame(
         {
             "cell": placed.cell_id[idx],
@@ -115,17 +130,22 @@ def cell_table(placed: PlacedCounts, mask: np.ndarray, data: Data, est: dict, li
             "p_away": est["p_away"],
             "p_toward": est["p_toward"],
             "p_none": est["p_none"],
+            "p_persist_gmm": est["p_pheno"][:, 0],
+            "p_partial_gmm": est["p_pheno"][:, 1],
+            "p_reverted_gmm": est["p_pheno"][:, 2],
             "p_persist": est["p_pheno"][:, 0],
             "p_partial": est["p_pheno"][:, 1],
             "p_reverted": est["p_pheno"][:, 2],
-            "pheno": est["pheno"],
-            "state": est["state"],
+            "pheno_gmm": est["pheno"],
+            "pheno": phenotype_calls(data.theta),
+            "state_gmm": est["state"],
+            "state": state_from_probs(p_state),
             "historical_state": placed.historical_state[idx],
             "historical_theta": placed.historical_theta[idx],
         }
     )
     for j, name in enumerate(STATE_NAMES):
-        df[f"p_{name}"] = est["p_state"][:, j]
+        df[f"p_{name}"] = p_state[:, j]
     return df
 
 
@@ -208,7 +228,7 @@ def eval_lineage(df: pd.DataFrame, data: Data, est: dict, lineage: str) -> dict:
     if exp.any():
         for lab in ("persistent", "partial", "reverted"):
             m = exp & (df["pheno"].to_numpy() == lab)
-            out[f"e15_frac_{lab}"] = float(m.mean())
+            out[f"e15_frac_{lab}"] = float(m[exp].mean())
             out[f"e15_n_{lab}"] = int(m.sum())
             if m.any():
                 out[f"e15_mean_p_away_{lab}"] = float(df.loc[m, "p_away"].mean())
@@ -244,7 +264,7 @@ def plot_lineage(df: pd.DataFrame, gene_df: pd.DataFrame, lineage: str, out_dir:
     ax.set_xticks(x)
     ax.set_xticklabels(["E14 control", "E15 exposed"])
     ax.set_ylabel("fraction")
-    ax.set_title(f"{lineage} GMM phenotype")
+    ax.set_title(f"{lineage} θ-gate phenotype")
     ax.set_ylim(0, 1)
     ax.legend(frameon=False, fontsize=8)
 
@@ -348,8 +368,8 @@ def write_eval_md(path: Path, evals: list[dict], summaries: pd.DataFrame, qc: pd
     lines += [
         "## How to read this",
         "",
-        "- Phenotype (`h`, `theta`, GMM persist/partial/reverted) is the spliced HIF-α program. E15 tumors are expected to mix persistent hypoxia with reversion; E14 should sit at the low-HIF end.",
-        "- Lag (`xi`, `p_away`, `p_toward`) is residual unspliced after library, capture, and cycle. Synthetic tests recovered rank of `xi` only weakly; report probabilities.",
+        "- Primary phenotype is the theta 0.3 / 0.7 gate on the spliced HIF factor (same cuts as the earlier tumor-only analysis). The 3-component GMM is stored as pheno_gmm; it collapses partial when real h is overlapping.",
+        "- Lag (xi, p_away, p_toward) is residual unspliced after library, capture, and cycle. Synthetic tests recovered rank of xi only weakly; report probabilities. If control p_away is high, do not read E15 flux as reoxygenation.",
         "- Neutrophils have lower UMI and a weaker HIF transcriptional program than MC38 tumors. A small persistent fraction there is not evidence they share tumor kinetics.",
         "- Historical `hypoxia_kinetics_state` / `theta_normoxic` on this object were tumor-only gates; they are compared only for tumors and are not used as labels for neutrophils.",
         "",
