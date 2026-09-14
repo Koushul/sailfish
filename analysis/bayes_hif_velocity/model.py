@@ -40,10 +40,6 @@ def pack_sizes(n: int, g: int) -> list[tuple[str, int]]:
         ("c_g2m", g),
         ("c_r", g),
         ("log_rho0", g),
-        ("a_theta", 1),
-        ("a_s", 1),
-        ("a_g2m", 1),
-        ("a_r", 1),
         ("log_sigma_v", 1),
         ("log_phi", g),
         ("xi_hat", n),
@@ -72,10 +68,6 @@ def init_loc(data: Data) -> np.ndarray:
         "c_g2m": np.zeros(g),
         "c_r": np.zeros(g),
         "log_rho0": np.zeros(g),
-        "a_theta": np.zeros(1),
-        "a_s": np.zeros(1),
-        "a_g2m": np.zeros(1),
-        "a_r": np.zeros(1),
         "log_sigma_v": np.array([-2.0]),
         "log_phi": np.full(g, 2.0),
         "xi_hat": np.zeros(n),
@@ -83,16 +75,21 @@ def init_loc(data: Data) -> np.ndarray:
     return np.concatenate([p[k] for k, _ in pack_sizes(n, g)])
 
 
+def cycle_design(data: Data) -> np.ndarray:
+    x = np.column_stack([data.cycle_s, data.cycle_g2m])
+    x = x - x.mean(axis=0, keepdims=True)
+    return x
+
+
+def residualize_cycle(v: np.ndarray, data: Data) -> np.ndarray:
+    x = cycle_design(data)
+    coef, _, _, _ = np.linalg.lstsq(x, v, rcond=None)
+    return v - x @ coef
+
+
 def xi_from(p: dict, data: Data) -> tuple[np.ndarray, np.ndarray, float]:
     sigma = float(np.exp(np.clip(p["log_sigma_v"][0], -8.0, 2.0)))
-    th = data.theta - float(data.theta.mean())
-    raw = (
-        p["a_theta"][0] * th
-        + p["a_s"][0] * data.cycle_s
-        + p["a_g2m"][0] * data.cycle_g2m
-        + p["a_r"][0] * data.exposed
-        + sigma * p["xi_hat"]
-    )
+    raw = residualize_cycle(sigma * p["xi_hat"], data)
     ctrl = data.exposed < 0.5
     cmean = float(raw[ctrl].mean())
     return raw - cmean, raw, sigma
@@ -134,8 +131,7 @@ def objective_and_grad(vec: np.ndarray, data: Data) -> tuple[float, np.ndarray]:
     ctrl = data.exposed < 0.5
     n0 = float(ctrl.sum())
     g_xi = g_xi - (g_xi[ctrl].sum() / n0) * ctrl.astype(np.float64)
-
-    th = data.theta - float(data.theta.mean())
+    g_xi = residualize_cycle(g_xi, data)
 
     grads = {
         "log_kappa": dlogmu.sum(axis=0) - (p["log_kappa"] - data.log_kappa0) / (0.3**2),
@@ -147,10 +143,6 @@ def objective_and_grad(vec: np.ndarray, data: Data) -> tuple[float, np.ndarray]:
         "c_g2m": (dlogmu * data.cycle_g2m[:, None]).sum(axis=0) - p["c_g2m"] / (0.3**2),
         "c_r": (dlogmu * data.exposed[:, None]).sum(axis=0) - p["c_r"] / (0.3**2),
         "log_rho0": (dlogmu * (1.0 - data.exposed)[:, None]).sum(axis=0) - p["log_rho0"] / (0.5**2),
-        "a_theta": np.array([np.dot(g_xi, th)]) - p["a_theta"] / (0.5**2),
-        "a_s": np.array([np.dot(g_xi, data.cycle_s)]) - p["a_s"] / (0.5**2),
-        "a_g2m": np.array([np.dot(g_xi, data.cycle_g2m)]) - p["a_g2m"] / (0.5**2),
-        "a_r": np.array([np.dot(g_xi, data.exposed)]) - p["a_r"] / (0.5**2),
         "log_sigma_v": np.array([np.dot(g_xi, p["xi_hat"]) * sigma])
         - (p["log_sigma_v"] + 2.0) / (0.5**2),
         "log_phi": d_log_phi(data.U, mu, phi) - (p["log_phi"] - 2.0),
@@ -194,8 +186,6 @@ def log_prior(p: dict, data: Data) -> float:
     lp += -0.5 * np.sum(p["ell_lambda"] ** 2)
     lp += -0.5 * np.sum((p["c_s"] / 0.3) ** 2 + (p["c_g2m"] / 0.3) ** 2 + (p["c_r"] / 0.3) ** 2)
     lp += -0.5 * np.sum((p["log_rho0"] / 0.5) ** 2)
-    for k in ("a_theta", "a_s", "a_g2m", "a_r"):
-        lp += -0.5 * (p[k][0] / 0.5) ** 2
     lp += -0.5 * ((p["log_sigma_v"][0] + 2.0) / 0.5) ** 2
     lp += -0.5 * np.sum(((p["log_phi"] - 2.0) / 1.0) ** 2)
     lp += -0.5 * np.sum(p["xi_hat"] ** 2)
@@ -249,9 +239,14 @@ def fit(
         "c_s": p["c_s"],
         "c_g2m": p["c_g2m"],
         "sigma_v": sigma,
-        "a_s": float(p["a_s"][0]),
-        "a_g2m": float(p["a_g2m"][0]),
     }
+
+
+def phenotype_calls(theta: np.ndarray) -> np.ndarray:
+    out = np.array(["partial"] * theta.size, dtype=object)
+    out[theta <= 0.3] = "persistent"
+    out[theta >= 0.7] = "reverted"
+    return out
 
 
 def direction_calls(theta: np.ndarray, p_away: np.ndarray, p_toward: np.ndarray, exposed: np.ndarray) -> np.ndarray:
