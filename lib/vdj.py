@@ -920,6 +920,7 @@ def run_vdj(cfg: dict, outdir: Path) -> dict | None:
     plain = wl_path
     if wl_path.suffix == ".gz":
         plain = outdir / "vdj" / "3M-5pgex-jan-2023.txt"
+        plain.parent.mkdir(parents=True, exist_ok=True)
         if not plain.exists():
             with gzip.open(wl_path, "rt") as src, plain.open("w") as dst:
                 dst.write(src.read())

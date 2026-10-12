@@ -18,8 +18,10 @@ cd "$ROOT"
 
 run_one() {
   local cfg="$1"
+  local name
+  name="$(basename "$cfg" .json)"
   echo "START $(date -Is) $cfg"
-  "$PY" "$ROOT/run.py" "$cfg"
+  "$PY" "$ROOT/run.py" "$cfg" > "/ix1/ylee/kor11/TCR_BCR/logs/${name}.log" 2>&1
   echo "DONE $(date -Is) $cfg"
 }
 
