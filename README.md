@@ -105,7 +105,26 @@ Omit `adt` for GEX-only; omit `ocm` (or `"mode": "quant"`) to skip demux. Defaul
 | `cellranger.filtered_mtx` | | `cellranger count` `filtered_feature_bc_matrix` |
 | `existing_quants.gex_h5ad` / `adt_h5ad` | | Same as `gex.h5ad` / `adt.h5ad` |
 
-**Outputs:** quant → `{output}/quant/{sample}_gex[_adt].h5ad` + MTX. OCM → `{output}/ocm/per_sample_outs/<id>/` and `{sample}_gex_adt_ocm.h5ad`. `cellranger.*` adds `compare_to_cellranger.json`.
+## 5' V(D)J (TCR / BCR)
+
+GEM-X Single Cell 5' v3 (CG000733): Read 1 is 16 bp barcode + 12 bp UMI + TSO `TTTCTTATATGGG`. Barcode inclusion list is `3M-5pgex-jan-2023` (Single Cell 5' v3). Chemistry name `10xv3-5p`, geometry `1{b[16]u[12]x:}2{r:}`. Recommended cycles are 28 / 10 / 10 / 90; extra Read 1 cycles are TSO plus the start of the insert.
+
+A VDJ-only config omits `gex`. `vdj.tcr` / `vdj.bcr` take `fastqs` or `reads1`/`reads2`. Assembly follows the Cell Ranger V(D)J steps: whitelist correction (one mismatch), per-barcode CDR3s from the conserved cysteine through FGXG/WGXG (26–80 nt), reference-guided V/J contigs, productive = V start codon through the end of J, in frame, no stop. Cells need a productive contig, at least three UMIs with two read pairs, and a per-UMI depth of at least 3% of the N50. Clonotypes are shared productive CDR3 nucleotide sequences.
+
+```json
+{
+  "sample": "E20T",
+  "output": "runs/E20T",
+  "vdj": {
+    "reference": "/path/to/refdata-cellranger-vdj-GRCm38-alts-ensembl-7.0.0",
+    "whitelist": "/path/to/3M-5pgex-jan-2023.txt.gz",
+    "chemistry": "10xv3-5p",
+    "tcr": {"fastqs": "/path/to/E20T_TCR"}
+  }
+}
+```
+
+**Outputs:** quant → `{output}/quant/{sample}_gex[_adt].h5ad` + MTX. OCM → `{output}/ocm/per_sample_outs/<id>/` and `{sample}_gex_adt_ocm.h5ad`. VDJ → `{output}/vdj/tcr` and/or `bcr` (`filtered_contig_annotations.csv`, `clonotypes.csv`, `airr_rearrangement.tsv`, `filtered_contig.fasta`). `cellranger.*` adds `compare_to_cellranger.json`.
 
 ## Microwell placement
 

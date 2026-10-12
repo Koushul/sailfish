@@ -16,6 +16,7 @@ from lib.env import setup_env
 from lib.io_utils import find_alevin_dir, find_quants_h5ad
 from lib.merge import merge_gex_adt
 from lib.quant import ensure_chemistry, run_simpleaf_quant, simpleaf_set_paths
+from lib.vdj import run_vdj
 
 
 def load_config(path: Path) -> dict:
@@ -53,7 +54,7 @@ def resolve_adt_inputs(cfg: dict, outdir: Path) -> tuple[Path | None, Path | Non
 
 
 def maybe_quant(cfg: dict, outdir: Path, skip_quant: bool) -> None:
-    if skip_quant:
+    if skip_quant or not cfg.get("gex"):
         return
     gex = cfg["gex"]
     adt = cfg.get("adt")
@@ -106,6 +107,10 @@ def run_pipeline(cfg: dict, *, skip_quant: bool | None = None) -> Path:
     simpleaf_set_paths()
     skip = cfg.get("skip_quant", False) if skip_quant is None else skip_quant
     maybe_quant(cfg, outdir, skip)
+    if cfg.get("vdj"):
+        run_vdj(cfg, outdir)
+    if not cfg.get("gex"):
+        return outdir
 
     gex_h5, gex_al = resolve_gex_inputs(cfg, outdir)
     adt_h5, adt_al = resolve_adt_inputs(cfg, outdir)
@@ -174,7 +179,7 @@ def run_pipeline(cfg: dict, *, skip_quant: bool | None = None) -> Path:
 
 def main() -> None:
     ap = argparse.ArgumentParser(
-        description="simpleaf 10x GEX (± ADT) quantification, with optional OCM demux.",
+        description="simpleaf 10x GEX (± ADT) and 5' GEM-X V(D)J TCR/BCR, with optional OCM demux.",
         usage="%(prog)s CONFIG.json [-o DIR] [--skip-quant]",
     )
     ap.add_argument("config", help="JSON config (see README)")

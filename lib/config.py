@@ -64,8 +64,8 @@ def normalize_config(cfg: dict) -> dict:
     cfg = dict(cfg)
     if "output" not in cfg:
         raise ValueError("config needs 'output'")
-    if "gex" not in cfg:
-        raise ValueError("config needs 'gex' (reads1, reads2, index, chemistry)")
+    if "gex" not in cfg and "vdj" not in cfg:
+        raise ValueError("config needs 'gex' and/or 'vdj'")
     cfg.setdefault("sample", Path(cfg["output"]).name)
     cfg.setdefault("mode", "quant")
     cfg.setdefault("threads", 16)
@@ -73,17 +73,23 @@ def normalize_config(cfg: dict) -> dict:
     if "min_gex_umi" not in cfg:
         cfg["min_gex_umi"] = int((cfg.get("filter") or {}).get("min_gex_umi", 500))
     cfg.setdefault("alevin_fry_home", str(Path(cfg["output"]) / "af_home"))
-    gex = dict(cfg["gex"])
-    gex.setdefault("min_reads", 10)
-    gex.setdefault("resolution", "cr-like")
-    gex.setdefault("chemistry", "10xv3")
-    cfg["gex"] = gex
+    if cfg.get("gex"):
+        gex = dict(cfg["gex"])
+        gex.setdefault("min_reads", 10)
+        gex.setdefault("resolution", "cr-like")
+        gex.setdefault("chemistry", "10xv3")
+        cfg["gex"] = gex
     if cfg.get("adt"):
         adt = dict(cfg["adt"])
         adt.setdefault("min_reads", 10)
         adt.setdefault("resolution", "cr-like")
         cfg["adt"] = adt
-    if cfg["mode"] == "ocm":
+    if cfg.get("vdj"):
+        vdj = dict(cfg["vdj"])
+        vdj.setdefault("chemistry", "10xv3-5p")
+        vdj.setdefault("min_read_pairs", 6)
+        cfg["vdj"] = vdj
+    if cfg.get("gex") and cfg["mode"] == "ocm":
         ocm = dict(cfg.get("ocm") or {})
         ocm.setdefault("overhang_start", 7)
         ocm.setdefault("overhang_len", 2)
