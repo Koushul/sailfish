@@ -1,0 +1,22 @@
+{
+  "sample": "E20T",
+  "mode": "ocm",
+  "output": "/ix1/ylee/kor11/TCR_BCR/runs/E20T",
+  "threads": 12,
+  "min_gex_umi": 500,
+  "tools": {"conda": "/ix1/ylee/kor11/tools/af_tutorial/conda_env"},
+  "gex": {
+    "reads1": ["/ix1/ylee/shared/E20_E30_Series/01.RawData/E20T_GEX/E20T_GEX-SI_TT_E4_23W5C2LT4_S1_L005_R1_001.fastq.gz"],
+    "reads2": ["/ix1/ylee/shared/E20_E30_Series/01.RawData/E20T_GEX/E20T_GEX-SI_TT_E4_23W5C2LT4_S1_L005_R2_001.fastq.gz"],
+    "index": "/ix1/ylee/shared/E18S_E19S_E37S1_E37S2/E37S2_sailfish/refs/mouse-2024-A_splici/index",
+    "chemistry": "10xv3-5p"
+  },
+  "ocm": {
+    "samples": [
+      {"ocm_barcode_id": "OB1", "sample_id": "kidney_cd4", "overhang": "GT", "description": "E20T CD4 T cells, kidney"},
+      {"ocm_barcode_id": "OB2", "sample_id": "spleen_cd4", "overhang": "CA", "description": "E20T CD4 T cells, spleen"},
+      {"ocm_barcode_id": "OB3", "sample_id": "liver_cd4", "overhang": "TC", "description": "E20T CD4 T cells, liver"},
+      {"ocm_barcode_id": "OB4", "sample_id": "lung_cd4", "overhang": "AG", "description": "E20T CD4 T cells, lung"}
+    ]
+  }
+}

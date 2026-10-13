@@ -134,6 +134,8 @@ python run.py configs/e20_e24/ocm_split.json --split-vdj-ocm
 
 Each well is written to `{vdj_dir}/{tcr|bcr}/per_ocm/<sample_id>/` with clonotypes rebuilt inside that well. `filtered_contig_annotations.ocm.csv` keeps the pooled clonotype id in `pooled_clonotype_id`. If the config sets `h5ad`, the same tables are also written as one AnnData file with one row per productive contig and dataset, OCM well, chain, and clonotype fields in `obs`. `X` is that contig's UMI count.
 
+E20–E24 GEX uses the same GEM-X 5' chemistry (`10xv3-5p`, piscem geometry `chromium_v3_5p`) and the mouse GRCm39 splici index. `run_e20_e24_gex.sh` quantifies each library and writes an OCM matrix per well under `{output}/ocm/per_sample_outs/<sample_id>/`. Configs: `configs/e20_e24/*_gex.json`.
+
 ## Microwell placement
 
 `placement/cell_placement.py` is the entropy localizer used by
