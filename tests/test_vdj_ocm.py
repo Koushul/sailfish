@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from lib.vdj_ocm import split_library
+from lib.vdj_ocm import split_library, tissue_population
 
 SAMPLES = [
     {"ocm_barcode_id": "OB1", "sample_id": "kidney_cd4", "overhang": "GT", "description": "kidney"},
@@ -35,6 +35,10 @@ def _row(barcode, chain, cdr3_nt, contig):
 
 
 class VdjOcmTests(unittest.TestCase):
+    def test_tissue_population(self):
+        self.assertEqual(tissue_population("kidney_cd4"), ("kidney", "cd4"))
+        self.assertEqual(tissue_population("skin_cd4_cd8_pool"), ("skin", "cd4_cd8_pool"))
+        self.assertEqual(tissue_population("submandibular_cd8"), ("submandibular", "cd8"))
     def test_wells_do_not_share_clonotypes(self):
         gt = "AAAAAAAGTAAAAAAA"
         ca = "AAAAAAACAAAAAAAC"

@@ -329,8 +329,167 @@ def split_vdj_ocm(cfg: dict) -> Path:
         "number_of_clonotypes",
         "number_of_productive_contigs",
     ]
-    if out_summary is None:
-        return vdj_dir
-    out_summary.parent.mkdir(parents=True, exist_ok=True)
-    _write_csv(out_summary, summary_rows, fields)
-    return out_summary
+    if out_summary is not None:
+        out_summary.parent.mkdir(parents=True, exist_ok=True)
+        _write_csv(out_summary, summary_rows, fields)
+    if cfg.get("h5ad"):
+        return write_vdj_h5ad(cfg, Path(cfg["h5ad"]))
+    return out_summary or vdj_dir
+
+
+_TISSUES = ("submandibular", "lacrimal", "kidney", "spleen", "liver", "lung", "blood", "skin")
+
+
+def tissue_population(sample_id: str) -> tuple[str, str]:
+    for tissue in _TISSUES:
+        prefix = tissue + "_"
+        if sample_id.startswith(prefix):
+            return tissue, sample_id[len(prefix) :]
+    return "", sample_id
+
+
+def _paired_cell(receptor: str, chains: set[str]) -> bool:
+    if receptor == "TCR":
+        return "TRA" in chains and "TRB" in chains
+    if receptor == "BCR":
+        return "IGH" in chains and bool({"IGK", "IGL"} & chains)
+    return False
+
+
+def write_vdj_h5ad(cfg: dict, path: Path) -> Path:
+    import anndata as ad
+    import numpy as np
+    import pandas as pd
+    from scipy import sparse
+
+    records = []
+    sample_rows = []
+    for lib in cfg["libraries"]:
+        dataset = lib.get("id", Path(lib["vdj_dir"]).name)
+        vdj_dir = Path(lib["vdj_dir"])
+        by_id = {s["sample_id"]: s for s in lib["samples"]}
+        for spec in lib["samples"]:
+            tissue, population = tissue_population(spec["sample_id"])
+            sample_rows.append(
+                {
+                    "dataset": dataset,
+                    "sample_id": spec["sample_id"],
+                    "description": spec.get("description", ""),
+                    "ocm_barcode_id": spec["ocm_barcode_id"],
+                    "ocm_overhang": spec["overhang"],
+                    "tissue": tissue,
+                    "population": population,
+                    "sample_ul": float(spec["sample_ul"]) if "sample_ul" in spec else float("nan"),
+                    "diluent_ul": float(spec["diluent_ul"]) if "diluent_ul" in spec else float("nan"),
+                }
+            )
+        for receptor_name in lib["receptors"]:
+            receptor = receptor_name.upper()
+            libdir = vdj_dir / receptor_name
+            for spec in lib["samples"]:
+                sample_dir = libdir / "per_ocm" / spec["sample_id"]
+                contigs = _load_rows(sample_dir / "filtered_contig_annotations.csv")
+                sequences = _load_sequences(sample_dir)
+                clones = {
+                    row["clonotype_id"]: row
+                    for row in csv.DictReader((sample_dir / "clonotypes.csv").open(newline=""))
+                }
+                tissue, population = tissue_population(spec["sample_id"])
+                for row in contigs:
+                    cid = row.get("raw_clonotype_id", "")
+                    clone = clones.get(cid, {})
+                    records.append(
+                        {
+                            "dataset": dataset,
+                            "receptor": receptor,
+                            "organism": "Mus musculus",
+                            "chemistry": "10xv3-5p",
+                            "barcode": row["barcode"],
+                            "cell_id": f"{dataset}|{receptor}|{row['barcode']}",
+                            "contig_id": row["contig_id"],
+                            "ocm_overhang": row["ocm_overhang"],
+                            "ocm_barcode_id": row["ocm_barcode_id"],
+                            "sample_id": row["sample_id"],
+                            "description": spec.get("description", ""),
+                            "tissue": tissue,
+                            "population": population,
+                            "sample_ul": float(spec["sample_ul"]) if "sample_ul" in spec else float("nan"),
+                            "diluent_ul": float(spec["diluent_ul"]) if "diluent_ul" in spec else float("nan"),
+                            "chain": row["chain"],
+                            "v_gene": row["v_gene"],
+                            "d_gene": row["d_gene"],
+                            "j_gene": row["j_gene"],
+                            "c_gene": row["c_gene"],
+                            "cdr3": row["cdr3"],
+                            "cdr3_nt": row["cdr3_nt"],
+                            "sequence": sequences.get(row["contig_id"], row.get("sequence", "")),
+                            "length": row["length"],
+                            "reads": row["reads"],
+                            "umis": row["umis"],
+                            "full_length": row["full_length"],
+                            "productive": row["productive"],
+                            "high_confidence": row["high_confidence"],
+                            "is_cell": row["is_cell"],
+                            "well_clonotype_id": cid,
+                            "clonotype_id": f"{dataset}|{receptor}|{spec['sample_id']}|{cid}",
+                            "pooled_clonotype_id": row.get("pooled_clonotype_id", ""),
+                            "consensus_id": row.get("raw_consensus_id", ""),
+                            "clonotype_frequency": int(clone.get("frequency", 0) or 0),
+                            "clonotype_proportion": float(clone.get("proportion", 0) or 0),
+                        }
+                    )
+            if by_id and not (libdir / "per_ocm").exists():
+                raise FileNotFoundError(libdir / "per_ocm")
+    if not records:
+        raise ValueError("no VDJ contigs to write")
+    obs = pd.DataFrame.from_records(records)
+    chain_sets = obs.groupby("cell_id", sort=False)["chain"].agg(lambda s: set(s))
+    receptor_of = obs.groupby("cell_id", sort=False)["receptor"].first()
+    paired = {
+        cell: _paired_cell(receptor_of.loc[cell], chains) for cell, chains in chain_sets.items()
+    }
+    obs["is_paired"] = obs["cell_id"].map(paired)
+    obs["n_contigs"] = obs.groupby("cell_id", sort=False)["contig_id"].transform("size").astype(int)
+    obs.index = pd.Index(
+        obs["dataset"] + "|" + obs["receptor"] + "|" + obs["contig_id"],
+        name="contig_key",
+    )
+    if not obs.index.is_unique:
+        raise ValueError("contig keys are not unique")
+    for col in (
+        "dataset",
+        "receptor",
+        "organism",
+        "chemistry",
+        "ocm_overhang",
+        "ocm_barcode_id",
+        "sample_id",
+        "description",
+        "tissue",
+        "population",
+        "chain",
+        "v_gene",
+        "d_gene",
+        "j_gene",
+        "c_gene",
+        "well_clonotype_id",
+    ):
+        obs[col] = obs[col].astype("category")
+    x = sparse.csr_matrix(obs["umis"].to_numpy(np.float32).reshape(-1, 1))
+    var = pd.DataFrame(index=pd.Index(["umis"], name="feature"))
+    adata = ad.AnnData(X=x, obs=obs, var=var)
+    adata.uns["organism"] = "Mus musculus"
+    adata.uns["chemistry"] = "10xv3-5p"
+    adata.uns["barcode_whitelist"] = "3M-5pgex-jan-2023"
+    adata.uns["ocm_overhang_start"] = 7
+    adata.uns["ocm_overhang_len"] = 2
+    adata.uns["ocm_overhangs"] = {"OB1": "GT", "OB2": "CA", "OB3": "TC", "OB4": "AG"}
+    adata.uns["ocm_samples"] = pd.DataFrame(sample_rows)
+    adata.uns["x"] = "UMI count of this productive contig"
+    if cfg.get("summary") and Path(cfg["summary"]).exists():
+        adata.uns["ocm_summary"] = pd.read_csv(cfg["summary"])
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    adata.write_h5ad(path, compression="gzip")
+    print(f"wrote {path} ({adata.n_obs} contigs, {obs['cell_id'].nunique()} cells)", flush=True)
+    return path

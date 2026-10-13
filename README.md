@@ -132,7 +132,7 @@ GEM-X OCM uses a 2 bp overhang at barcode positions 7–8 (`GT` OB1, `CA` OB2, `
 python run.py configs/e20_e24/ocm_split.json --split-vdj-ocm
 ```
 
-Each well is written to `{vdj_dir}/{tcr|bcr}/per_ocm/<sample_id>/` with clonotypes rebuilt inside that well. `filtered_contig_annotations.ocm.csv` keeps the pooled clonotype id in `pooled_clonotype_id`.
+Each well is written to `{vdj_dir}/{tcr|bcr}/per_ocm/<sample_id>/` with clonotypes rebuilt inside that well. `filtered_contig_annotations.ocm.csv` keeps the pooled clonotype id in `pooled_clonotype_id`. If the config sets `h5ad`, the same tables are also written as one AnnData file with one row per productive contig and dataset, OCM well, chain, and clonotype fields in `obs`. `X` is that contig's UMI count.
 
 ## Microwell placement
 
