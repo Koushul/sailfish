@@ -17,6 +17,7 @@ from lib.io_utils import find_alevin_dir, find_quants_h5ad
 from lib.merge import merge_gex_adt
 from lib.quant import ensure_chemistry, run_simpleaf_quant, simpleaf_set_paths
 from lib.vdj import run_vdj
+from lib.vdj_ocm import split_vdj_ocm
 
 
 def load_config(path: Path) -> dict:
@@ -185,8 +186,16 @@ def main() -> None:
     ap.add_argument("config", help="JSON config (see README)")
     ap.add_argument("-o", "--output", default=None, help="override config output directory")
     ap.add_argument("--skip-quant", action="store_true", help="reuse existing simpleaf quants; only merge/demux")
+    ap.add_argument(
+        "--split-vdj-ocm",
+        action="store_true",
+        help="split existing VDJ contig tables by GEM-X overhang; do not rescan FASTQs",
+    )
     args = ap.parse_args()
     cfg = load_config(Path(args.config))
+    if args.split_vdj_ocm:
+        split_vdj_ocm(cfg)
+        return
     if args.output:
         cfg["output"] = args.output
     run_pipeline(cfg, skip_quant=True if args.skip_quant else None)

@@ -126,6 +126,14 @@ A VDJ-only config omits `gex`. `vdj.tcr` / `vdj.bcr` take `fastqs` or `reads1`/`
 
 **Outputs:** quant → `{output}/quant/{sample}_gex[_adt].h5ad` + MTX. OCM → `{output}/ocm/per_sample_outs/<id>/` and `{sample}_gex_adt_ocm.h5ad`. VDJ → `{output}/vdj/tcr` and/or `bcr` (`filtered_contig_annotations.csv`, `clonotypes.csv`, `airr_rearrangement.tsv`, `filtered_contig.fasta`). `cellranger.*` adds `compare_to_cellranger.json`.
 
+GEM-X OCM uses a 2 bp overhang at barcode positions 7–8 (`GT` OB1, `CA` OB2, `TC` OB3, `AG` OB4). After VDJ calling, split the existing tables without another FASTQ pass:
+
+```bash
+python run.py configs/e20_e24/ocm_split.json --split-vdj-ocm
+```
+
+Each well is written to `{vdj_dir}/{tcr|bcr}/per_ocm/<sample_id>/` with clonotypes rebuilt inside that well. `filtered_contig_annotations.ocm.csv` keeps the pooled clonotype id in `pooled_clonotype_id`.
+
 ## Microwell placement
 
 `placement/cell_placement.py` is the entropy localizer used by
