@@ -2,11 +2,16 @@
   "sample": "E22B",
   "output": "/ix1/ylee/kor11/TCR_BCR/runs/E22B",
   "threads": 4,
-  "tools": {"conda": "/ix1/ylee/kor11/tools/af_tutorial/conda_env"},
+  "tools": {
+    "conda": "/ix1/ylee/kor11/tools/af_tutorial/conda_env"
+  },
   "vdj": {
     "reference": "/ix1/ylee/Yifan_Zhang/Cellranger_ref/refdata-cellranger-vdj-GRCm38-alts-ensembl-7.0.0",
     "whitelist": "/ix1/ylee/kor11/TCR_BCR/refs/3M-5pgex-jan-2023.txt.gz",
     "chemistry": "10xv3-5p",
-    "bcr": {"fastqs": "/ix1/ylee/shared/E20_E30_Series/01.RawData/E22B_BCR"}
+    "bcr": {
+      "fastqs": "/ix1/ylee/shared/E20_E30_Series/01.RawData/E22B_BCR"
+    },
+    "gex_cells": "/ix1/ylee/kor11/TCR_BCR/runs/E22B/ocm/E22B_gex_adt_ocm.h5ad"
   }
 }

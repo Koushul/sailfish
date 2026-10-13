@@ -191,6 +191,12 @@ def main() -> None:
         action="store_true",
         help="split existing VDJ contig tables by GEM-X overhang; do not rescan FASTQs",
     )
+    ap.add_argument("--vdj-receptor", choices=["tcr", "bcr"], default=None, help="run only this V(D)J library")
+    ap.add_argument(
+        "--reuse-vdj-groups",
+        action="store_true",
+        help="re-call cells from the cached UMI groups instead of rescanning V(D)J FASTQs",
+    )
     args = ap.parse_args()
     cfg = load_config(Path(args.config))
     if args.split_vdj_ocm:
@@ -198,6 +204,11 @@ def main() -> None:
         return
     if args.output:
         cfg["output"] = args.output
+    if cfg.get("vdj"):
+        if args.vdj_receptor:
+            cfg["vdj"]["receptors"] = [args.vdj_receptor]
+        if args.reuse_vdj_groups:
+            cfg["vdj"]["reuse_groups"] = True
     run_pipeline(cfg, skip_quant=True if args.skip_quant else None)
 
 

@@ -332,9 +332,17 @@ def split_vdj_ocm(cfg: dict) -> Path:
     if out_summary is not None:
         out_summary.parent.mkdir(parents=True, exist_ok=True)
         _write_csv(out_summary, summary_rows, fields)
+    result = out_summary or vdj_dir
     if cfg.get("h5ad"):
-        return write_vdj_h5ad(cfg, Path(cfg["h5ad"]))
-    return out_summary or vdj_dir
+        result = write_vdj_h5ad(cfg, Path(cfg["h5ad"]))
+    if cfg.get("joint_h5ad") or cfg.get("qc_cross_library"):
+        from .vdj_joint import cross_library_qc, write_joint_h5ad
+
+        if cfg.get("qc_cross_library"):
+            cross_library_qc(cfg)
+        if cfg.get("joint_h5ad"):
+            write_joint_h5ad(cfg)
+    return result
 
 
 _TISSUES = ("submandibular", "lacrimal", "kidney", "spleen", "liver", "lung", "blood", "skin")

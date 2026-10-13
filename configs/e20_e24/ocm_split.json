@@ -5,57 +5,200 @@
     {
       "id": "E20T",
       "vdj_dir": "/ix1/ylee/kor11/TCR_BCR/runs/E20T/vdj",
-      "receptors": ["tcr"],
+      "receptors": [
+        "tcr"
+      ],
       "samples": [
-        {"ocm_barcode_id": "OB1", "sample_id": "kidney_cd4", "overhang": "GT", "description": "E20T CD4 T cells, kidney", "sample_ul": 7, "diluent_ul": 3},
-        {"ocm_barcode_id": "OB2", "sample_id": "spleen_cd4", "overhang": "CA", "description": "E20T CD4 T cells, spleen", "sample_ul": 10, "diluent_ul": 0},
-        {"ocm_barcode_id": "OB3", "sample_id": "liver_cd4", "overhang": "TC", "description": "E20T CD4 T cells, liver", "sample_ul": 1.75, "diluent_ul": 8.25},
-        {"ocm_barcode_id": "OB4", "sample_id": "lung_cd4", "overhang": "AG", "description": "E20T CD4 T cells, lung", "sample_ul": 9.3, "diluent_ul": 0.7}
-      ]
+        {
+          "ocm_barcode_id": "OB1",
+          "sample_id": "kidney_cd4",
+          "overhang": "GT",
+          "description": "E20T CD4 T cells, kidney",
+          "sample_ul": 7,
+          "diluent_ul": 3
+        },
+        {
+          "ocm_barcode_id": "OB2",
+          "sample_id": "spleen_cd4",
+          "overhang": "CA",
+          "description": "E20T CD4 T cells, spleen",
+          "sample_ul": 10,
+          "diluent_ul": 0
+        },
+        {
+          "ocm_barcode_id": "OB3",
+          "sample_id": "liver_cd4",
+          "overhang": "TC",
+          "description": "E20T CD4 T cells, liver",
+          "sample_ul": 1.75,
+          "diluent_ul": 8.25
+        },
+        {
+          "ocm_barcode_id": "OB4",
+          "sample_id": "lung_cd4",
+          "overhang": "AG",
+          "description": "E20T CD4 T cells, lung",
+          "sample_ul": 9.3,
+          "diluent_ul": 0.7
+        }
+      ],
+      "gex_h5ad": "/ix1/ylee/kor11/TCR_BCR/runs/E20T/ocm/E20T_gex_adt_ocm.h5ad"
     },
     {
       "id": "E21T",
       "vdj_dir": "/ix1/ylee/kor11/TCR_BCR/runs/E21T/vdj",
-      "receptors": ["tcr"],
+      "receptors": [
+        "tcr"
+      ],
       "samples": [
-        {"ocm_barcode_id": "OB1", "sample_id": "kidney_cd8", "overhang": "GT", "description": "E21T CD8 T cells, kidney", "sample_ul": 3.57, "diluent_ul": 6.43},
-        {"ocm_barcode_id": "OB2", "sample_id": "spleen_cd8", "overhang": "CA", "description": "E21T CD8 T cells, spleen", "sample_ul": 5.5, "diluent_ul": 4.5},
-        {"ocm_barcode_id": "OB3", "sample_id": "liver_cd8", "overhang": "TC", "description": "E21T CD8 T cells, liver", "sample_ul": 0.6, "diluent_ul": 9.4},
-        {"ocm_barcode_id": "OB4", "sample_id": "lung_cd8", "overhang": "AG", "description": "E21T CD8 T cells, lung", "sample_ul": 3.77, "diluent_ul": 6.33}
-      ]
+        {
+          "ocm_barcode_id": "OB1",
+          "sample_id": "kidney_cd8",
+          "overhang": "GT",
+          "description": "E21T CD8 T cells, kidney",
+          "sample_ul": 3.57,
+          "diluent_ul": 6.43
+        },
+        {
+          "ocm_barcode_id": "OB2",
+          "sample_id": "spleen_cd8",
+          "overhang": "CA",
+          "description": "E21T CD8 T cells, spleen",
+          "sample_ul": 5.5,
+          "diluent_ul": 4.5
+        },
+        {
+          "ocm_barcode_id": "OB3",
+          "sample_id": "liver_cd8",
+          "overhang": "TC",
+          "description": "E21T CD8 T cells, liver",
+          "sample_ul": 0.6,
+          "diluent_ul": 9.4
+        },
+        {
+          "ocm_barcode_id": "OB4",
+          "sample_id": "lung_cd8",
+          "overhang": "AG",
+          "description": "E21T CD8 T cells, lung",
+          "sample_ul": 3.77,
+          "diluent_ul": 6.33
+        }
+      ],
+      "gex_h5ad": "/ix1/ylee/kor11/TCR_BCR/runs/E21T/ocm/E21T_gex_adt_ocm.h5ad"
     },
     {
       "id": "E22B",
       "vdj_dir": "/ix1/ylee/kor11/TCR_BCR/runs/E22B/vdj",
-      "receptors": ["bcr"],
+      "receptors": [
+        "bcr"
+      ],
       "samples": [
-        {"ocm_barcode_id": "OB1", "sample_id": "kidney_cd19", "overhang": "GT", "description": "E22B CD19 B cells, kidney", "sample_ul": 6.7, "diluent_ul": 3.3},
-        {"ocm_barcode_id": "OB2", "sample_id": "spleen_cd19", "overhang": "CA", "description": "E22B CD19 B cells, spleen", "sample_ul": 10, "diluent_ul": 0},
-        {"ocm_barcode_id": "OB3", "sample_id": "liver_cd19", "overhang": "TC", "description": "E22B CD19 B cells, liver", "sample_ul": 7.84, "diluent_ul": 2.16},
-        {"ocm_barcode_id": "OB4", "sample_id": "lung_cd19", "overhang": "AG", "description": "E22B CD19 B cells, lung", "sample_ul": 8.4, "diluent_ul": 2.16}
-      ]
+        {
+          "ocm_barcode_id": "OB1",
+          "sample_id": "kidney_cd19",
+          "overhang": "GT",
+          "description": "E22B CD19 B cells, kidney",
+          "sample_ul": 6.7,
+          "diluent_ul": 3.3
+        },
+        {
+          "ocm_barcode_id": "OB2",
+          "sample_id": "spleen_cd19",
+          "overhang": "CA",
+          "description": "E22B CD19 B cells, spleen",
+          "sample_ul": 10,
+          "diluent_ul": 0
+        },
+        {
+          "ocm_barcode_id": "OB3",
+          "sample_id": "liver_cd19",
+          "overhang": "TC",
+          "description": "E22B CD19 B cells, liver",
+          "sample_ul": 7.84,
+          "diluent_ul": 2.16
+        },
+        {
+          "ocm_barcode_id": "OB4",
+          "sample_id": "lung_cd19",
+          "overhang": "AG",
+          "description": "E22B CD19 B cells, lung",
+          "sample_ul": 8.4,
+          "diluent_ul": 2.16
+        }
+      ],
+      "gex_h5ad": "/ix1/ylee/kor11/TCR_BCR/runs/E22B/ocm/E22B_gex_adt_ocm.h5ad"
     },
     {
       "id": "E23TB",
       "vdj_dir": "/ix1/ylee/kor11/TCR_BCR/runs/E23TB/vdj",
-      "receptors": ["tcr", "bcr"],
+      "receptors": [
+        "tcr",
+        "bcr"
+      ],
       "samples": [
-        {"ocm_barcode_id": "OB1", "sample_id": "blood_cd4", "overhang": "GT", "description": "E23TB blood CD4 T cells"},
-        {"ocm_barcode_id": "OB2", "sample_id": "blood_cd8", "overhang": "CA", "description": "E23TB blood CD8 T cells"},
-        {"ocm_barcode_id": "OB3", "sample_id": "blood_cd19", "overhang": "TC", "description": "E23TB blood CD19 B cells"},
-        {"ocm_barcode_id": "OB4", "sample_id": "skin_cd4_cd8_pool", "overhang": "AG", "description": "E23TB skin CD4/CD8 pool"}
-      ]
+        {
+          "ocm_barcode_id": "OB1",
+          "sample_id": "blood_cd4",
+          "overhang": "GT",
+          "description": "E23TB blood CD4 T cells"
+        },
+        {
+          "ocm_barcode_id": "OB2",
+          "sample_id": "blood_cd8",
+          "overhang": "CA",
+          "description": "E23TB blood CD8 T cells"
+        },
+        {
+          "ocm_barcode_id": "OB3",
+          "sample_id": "blood_cd19",
+          "overhang": "TC",
+          "description": "E23TB blood CD19 B cells"
+        },
+        {
+          "ocm_barcode_id": "OB4",
+          "sample_id": "skin_cd4_cd8_pool",
+          "overhang": "AG",
+          "description": "E23TB skin CD4/CD8 pool"
+        }
+      ],
+      "gex_h5ad": "/ix1/ylee/kor11/TCR_BCR/runs/E23TB/ocm/E23TB_gex_adt_ocm.h5ad"
     },
     {
       "id": "E24T",
       "vdj_dir": "/ix1/ylee/kor11/TCR_BCR/runs/E24T/vdj",
-      "receptors": ["tcr"],
+      "receptors": [
+        "tcr"
+      ],
       "samples": [
-        {"ocm_barcode_id": "OB1", "sample_id": "lacrimal_cd4", "overhang": "GT", "description": "E24T lacrimal gland CD4 T cells"},
-        {"ocm_barcode_id": "OB2", "sample_id": "lacrimal_cd8", "overhang": "CA", "description": "E24T lacrimal gland CD8 T cells"},
-        {"ocm_barcode_id": "OB3", "sample_id": "submandibular_cd4", "overhang": "TC", "description": "E24T submandibular gland CD4 T cells"},
-        {"ocm_barcode_id": "OB4", "sample_id": "submandibular_cd8", "overhang": "AG", "description": "E24T submandibular gland CD8 T cells"}
-      ]
+        {
+          "ocm_barcode_id": "OB1",
+          "sample_id": "lacrimal_cd4",
+          "overhang": "GT",
+          "description": "E24T lacrimal gland CD4 T cells"
+        },
+        {
+          "ocm_barcode_id": "OB2",
+          "sample_id": "lacrimal_cd8",
+          "overhang": "CA",
+          "description": "E24T lacrimal gland CD8 T cells"
+        },
+        {
+          "ocm_barcode_id": "OB3",
+          "sample_id": "submandibular_cd4",
+          "overhang": "TC",
+          "description": "E24T submandibular gland CD4 T cells"
+        },
+        {
+          "ocm_barcode_id": "OB4",
+          "sample_id": "submandibular_cd8",
+          "overhang": "AG",
+          "description": "E24T submandibular gland CD8 T cells"
+        }
+      ],
+      "gex_h5ad": "/ix1/ylee/kor11/TCR_BCR/runs/E24T/ocm/E24T_gex_adt_ocm.h5ad"
     }
-  ]
+  ],
+  "animal": "lupus mouse (single animal; E20T\u2013E24T are sorted populations and organs of this mouse)",
+  "joint_h5ad": "/ix1/ylee/kor11/TCR_BCR/runs/e20_e24_gex_vdj.h5ad",
+  "qc_cross_library": "/ix1/ylee/kor11/TCR_BCR/runs/e20_e24_vdj_cross_library_qc.csv"
 }

@@ -10,6 +10,7 @@ from lib.vdj import (
     correct_barcode,
     find_cdr3,
     flank_score,
+    merge_variants,
     parse_regions_fa,
     r1_insert,
     resolve_regions_fa,
@@ -107,6 +108,116 @@ class VdjTests(unittest.TestCase):
         call_cells(rows)
         self.assertFalse(rows[0]["is_cell"])
         self.assertTrue(rows[4]["is_cell"])
+
+    def test_plasma_cell_variants_merge_and_cell_is_kept(self):
+        bc = "AAAAAAAAGAAAAAAA"
+        top = "TGTGCAAGAGAGGAGTATTACTATGACTACTGG"
+
+        def contig(chain, cdr3, umis):
+            return {
+                "barcode": bc,
+                "productive": True,
+                "chain": chain,
+                "v_gene": "IGHV1-80" if chain == "IGH" else "IGKV1",
+                "cdr3_nt": cdr3,
+                "umis": umis,
+                "reads": umis * 3,
+                "filtered_umis": umis,
+                "max_umi_reads": 5,
+                "umi_depths": [3] * umis,
+            }
+
+        rows = [contig("IGH", top, 3000), contig("IGK", "TGTCAGCAGTATAGTAAGCTTCCGTATACG", 2500)]
+        for i in range(len(top)):
+            alt = "A" if top[i] != "A" else "C"
+            rows.append(contig("IGH", top[:i] + alt + top[i + 1 :], 1))
+        rows.append(contig("IGH", "TGTGCAAGGACCTACCGGTACTTCGATGTCTGG", 6))
+        rows.append(contig("IGL", "TGTGCCCTATGGTACAGCAACCATTTCGTG", 4))
+        merged = merge_variants(rows)
+        igh = [r for r in merged if r["chain"] == "IGH"]
+        self.assertEqual(len(igh), 2)
+        self.assertEqual(max(r["umis"] for r in igh), 3000 + len(top))
+        call_cells(merged)
+        self.assertTrue(all(r["is_cell"] for r in merged))
+        passed = [r for r in merged if r["passes_filter"]]
+        self.assertEqual({r["chain"] for r in passed}, {"IGH", "IGK"})
+        self.assertEqual(len(passed), 2)
+
+    def test_gex_anchor_rejects_vdj_only_barcodes(self):
+        def tcr(bc):
+            return [
+                {
+                    "barcode": bc,
+                    "productive": True,
+                    "chain": chain,
+                    "v_gene": f"{chain}V1",
+                    "cdr3_nt": "TGTGCCAGCAGCTTT",
+                    "umis": 3,
+                    "reads": 9,
+                    "filtered_umis": 3,
+                    "max_umi_reads": 4,
+                    "umi_depths": [4, 3, 2],
+                }
+                for chain in ("TRA", "TRB")
+            ]
+
+        rows = tcr("AAAAAAAGTAAAAAAA") + tcr("CCCCCCCGTCCCCCCC")
+        stats = call_cells(rows, gex_cells={"AAAAAAAGTAAAAAAA"})
+        self.assertTrue(rows[0]["is_cell"])
+        self.assertFalse(rows[2]["is_cell"])
+        self.assertEqual(stats["vdj_cells"], 2)
+        self.assertEqual(stats["vdj_cells_without_gex"], 1)
+
+    def test_three_strong_alleles_on_one_locus_is_a_doublet(self):
+        rows = [
+            {
+                "barcode": "GGGGGGGTCGGGGGGG",
+                "productive": True,
+                "chain": "TRB",
+                "v_gene": f"TRBV{i}",
+                "cdr3_nt": f"TGT{'ACG'[i] * 12}TTT",
+                "umis": 5,
+                "reads": 15,
+                "filtered_umis": 5,
+                "max_umi_reads": 4,
+                "umi_depths": [4] * 5,
+            }
+            for i in range(3)
+        ]
+        stats = call_cells(rows)
+        self.assertFalse(rows[0]["is_cell"])
+        self.assertTrue(rows[0]["multiplet"])
+        self.assertEqual(stats["multiplets"], 1)
+
+    def test_well_ambient_contig_is_removed_but_own_clone_member_kept(self):
+        lung_top = "TGTGCAAGAGAGGAGTATTACTATGACTACTGG"
+
+        def igh(bc, cdr3, umis):
+            return {
+                "barcode": bc,
+                "productive": True,
+                "chain": "IGH",
+                "v_gene": "IGHV1-80",
+                "cdr3_nt": cdr3,
+                "umis": umis,
+                "reads": umis * 3,
+                "filtered_umis": umis,
+                "max_umi_reads": 4,
+                "umi_depths": [3] * umis,
+            }
+
+        rows = [igh(f"EMPTYAAAG{i:02d}AAAAA", lung_top, 3) for i in range(40)]
+        b_cell = "BCELLAAAGTTTTTTT"
+        own = "TGTGCAAGGACCTACCGGTACTTCGATGTCTGG"
+        rows += [igh(b_cell, own, 12), igh(b_cell, lung_top, 3), igh(b_cell, "TGTACGAGGGGGTTAAGGGCTTACTGG", 1)]
+        plasma = "PLASMAAAGTTTTTTT"
+        rows += [igh(plasma, lung_top, 900), igh(plasma, own, 2)]
+        call_cells(rows, gex_cells={b_cell, plasma})
+        kept = {(r["barcode"], r["cdr3_nt"]) for r in rows if r.get("passes_filter")}
+        self.assertIn((b_cell, own), kept)
+        self.assertNotIn((b_cell, lung_top), kept)
+        self.assertIn((plasma, lung_top), kept)
+        self.assertNotIn((plasma, own), kept)
 
     def test_mouse_vdj_reference_parses(self):
         if not REF.exists():

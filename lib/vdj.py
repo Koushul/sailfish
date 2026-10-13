@@ -9,8 +9,11 @@ conserved cysteine through the first residue of an FGXG/WGXG motif (26–80 nt),
 and a contig is productive only when it spans a V start codon and the end of J
 in frame with no stop. Cell calling uses the three documented filters
 (productive contig, at least three UMIs with two read pairs, and the N50
-read-per-UMI floor). Clonotypes group cells that share productive CDR3
-nucleotide sequences.
+read-per-UMI floor) after near-identical CDR3 variants inside a barcode are
+merged and contigs far below the barcode's dominant chain are set aside as
+ambient. When a GEX cell list is given, only barcodes that are GEX cells can
+be VDJ cells (the Cell Ranger multi rule). Clonotypes group cells that share
+productive CDR3 nucleotide sequences.
 """
 
 from __future__ import annotations
@@ -18,6 +21,8 @@ from __future__ import annotations
 import csv
 import gzip
 import json
+import math
+import pickle
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -49,6 +54,16 @@ _CODON = {
     for k, c in enumerate("TCAG")
 }
 ADAPTER = "AGATCGGAAGAGC"
+MERGE_MAX_MISMATCH = 2
+LOCUS_FLOOR = 0.1
+CELL_FLOOR = 0.02
+MAX_STRONG_PER_LOCUS = 2
+KEEP_PER_LOCUS = {"IGH": 1, "TRB": 1, "TRA": 2, "IGK/IGL": 2}
+AMBIENT_P = 1e-3
+AMBIENT_MIN_UMIS = 50
+SECOND_RATIO = 0.5
+CROSS_CELL_MIN = 2
+GROUPS_CACHE = "groups.pkl.gz"
 
 
 @dataclass
@@ -670,7 +685,115 @@ def _n50(values: list[int]) -> float:
     return float(ordered[-1])
 
 
-def call_cells(rows: list[dict]) -> None:
+def _locus(chain: str) -> str:
+    return "IGK/IGL" if chain in ("IGK", "IGL") else chain
+
+
+def merge_variants(rows: list[dict]) -> list[dict]:
+    """Fold CDR3 error variants into the dominant contig of the same barcode.
+
+    A cell carries one junction per rearranged allele, so a minor CDR3 of the
+    same chain and length within two mismatches of a contig with at least twice
+    its UMIs is a PCR/sequencing variant. Without this, plasma cells (thousands
+    of Ig UMIs) shatter into hundreds of one-UMI contigs.
+    """
+    by_bc: dict[str, list[dict]] = defaultdict(list)
+    for row in rows:
+        by_bc[row["barcode"]].append(row)
+    out: list[dict] = []
+    for group in by_bc.values():
+        group.sort(key=lambda r: (-r["umis"], -r["reads"]))
+        kept: list[dict] = []
+        for r in group:
+            parent = next(
+                (
+                    p
+                    for p in kept
+                    if p["chain"] == r["chain"]
+                    and len(p["cdr3_nt"]) == len(r["cdr3_nt"])
+                    and p["umis"] >= 2 * r["umis"]
+                    and hamming(p["cdr3_nt"], r["cdr3_nt"]) <= MERGE_MAX_MISMATCH
+                ),
+                None,
+            )
+            if parent is None:
+                kept.append(r)
+                continue
+            parent["umis"] += r["umis"]
+            parent["reads"] += r["reads"]
+            parent["filtered_umis"] += r["filtered_umis"]
+            parent["max_umi_reads"] = max(parent["max_umi_reads"], r["max_umi_reads"])
+            parent["umi_depths"] = list(parent.get("umi_depths", ())) + list(r.get("umi_depths", ()))
+        out.extend(kept)
+    return out
+
+
+def _poisson_upper(lam: float, p: float = AMBIENT_P) -> float:
+    if lam <= 0:
+        return 0.0
+    if lam > 50:
+        return lam + 3.1 * math.sqrt(lam) + 1
+    term = math.exp(-lam)
+    cdf = term
+    n = 0
+    while 1 - cdf > p:
+        n += 1
+        term *= lam / n
+        cdf += term
+    return float(n)
+
+
+def ambient_profile(rows: list[dict], gex_cells: set[str] | None = None) -> dict[tuple[str, str], dict[str, float]]:
+    """CDR3 UMI shares among background barcodes, per OCM well and locus.
+
+    With OCM each well is loaded from its own suspension, so the ambient pool
+    of a lung well is lung plasma-cell Ig, not the lane average. Background is
+    every non-GEX barcode when a GEX list is given, else barcodes with at most
+    two productive UMIs.
+    """
+    totals: Counter = Counter()
+    for r in rows:
+        if r["productive"]:
+            totals[r["barcode"]] += r["umis"]
+    counts: dict[tuple[str, str], Counter] = defaultdict(Counter)
+    for r in rows:
+        if not r["productive"]:
+            continue
+        bc = r["barcode"]
+        background = bc not in gex_cells if gex_cells is not None else totals[bc] <= 2
+        if background:
+            counts[(bc[7:9], _locus(r["chain"]))][r["cdr3_nt"]] += r["umis"]
+    profile = {}
+    for k, c in counts.items():
+        total = sum(c.values())
+        if total < AMBIENT_MIN_UMIS:
+            continue
+        profile[k] = {nt: n / total for nt, n in c.items()}
+        profile[k][""] = 0.5 / total
+    return profile
+
+
+def _own_contigs(locus_rows: list[dict], prof: dict[str, float] | None) -> list[dict]:
+    """Contigs whose UMIs exceed what this droplet's ambient load predicts."""
+    if not prof:
+        return list(locus_rows)
+    pseudo = prof[""]
+
+    def share(r: dict) -> float:
+        return prof.get(r["cdr3_nt"], pseudo)
+
+    own = {id(locus_rows[0])}
+    for _ in range(4):
+        rest = sum(r["umis"] for r in locus_rows if id(r) not in own)
+        alpha = rest / max(0.1, 1 - sum(share(r) for r in locus_rows if id(r) in own))
+        new = {id(r) for r in locus_rows if r["umis"] > _poisson_upper(alpha * share(r))}
+        if new == own:
+            break
+        own = new
+    return [r for r in locus_rows if id(r) in own]
+
+
+def call_cells(rows: list[dict], gex_cells: set[str] | None = None, ambient: bool = True) -> dict:
     by_bc: dict[str, list[dict]] = defaultdict(list)
     for row in rows:
         by_bc[row["barcode"]].append(row)
@@ -681,39 +804,83 @@ def call_cells(rows: list[dict]) -> None:
                 umi_depths.extend(d for d in row.get("umi_depths", ()) if d >= 2)
     n50 = _n50(umi_depths) if umi_depths else 0.0
     floor = 0.03 * n50
+    profile = ambient_profile(rows, gex_cells) if ambient else {}
+    stats = {
+        "vdj_cells": 0,
+        "vdj_cells_without_gex": 0,
+        "multiplets": 0,
+        "ambient_contigs_removed": 0,
+        "cross_cell_contigs_removed": 0,
+    }
+    own_by_bc: dict[str, dict[str, list[dict]]] = {}
+    top_counts: Counter = Counter()
     for bc, group in by_bc.items():
         productive = [r for r in group if r["productive"]]
-        drop = False
-        by_chain: dict[str, list[dict]] = defaultdict(list)
+        cell_top = max((r["umis"] for r in productive), default=0)
+        by_locus: dict[str, list[dict]] = defaultdict(list)
         for r in productive:
-            by_chain[r["chain"]].append(r)
-        for chain_rows in by_chain.values():
-            strong = [r for r in chain_rows if r["umis"] >= 2]
-            cdrs = {r["cdr3_nt"] for r in strong}
-            vs = {r["v_gene"] for r in strong}
-            if len(cdrs) > 1 and len(vs) == 1:
-                drop = True
-        n_filt = sum(r["filtered_umis"] for r in productive)
-        max_depth = max((r["max_umi_reads"] for r in productive), default=0)
-        has_supported = any(r["umis"] >= 2 for r in productive)
-        is_cell = (
-            has_supported
-            and n_filt >= 3
-            and max_depth >= floor
-            and not drop
-            and 0 < len(productive) <= 4
-        )
+            by_locus[_locus(r["chain"])].append(r)
+        own_loci = {}
+        for locus, locus_rows in by_locus.items():
+            locus_rows.sort(key=lambda r: (-r["umis"], -r.get("reads", 0)))
+            own = _own_contigs(locus_rows, profile.get((bc[7:9], locus)))
+            stats["ambient_contigs_removed"] += len(locus_rows) - len(own)
+            if not own:
+                continue
+            min_umis = max(1.0, LOCUS_FLOOR * own[0]["umis"], CELL_FLOOR * cell_top)
+            own = [r for r in own if r["umis"] >= min_umis]
+            if not own:
+                continue
+            own_loci[locus] = own
+            if own[0]["umis"] >= 2 and (gex_cells is None or bc in gex_cells):
+                top_counts[(locus, own[0]["cdr3_nt"])] += 1
+        own_by_bc[bc] = own_loci
+    for bc, group in by_bc.items():
+        passing: list[dict] = []
+        multiplet = False
+        for locus, own in own_by_bc[bc].items():
+            top = own[0]["umis"]
+            ok = [own[0]]
+            for r in own[1:]:
+                if r["umis"] < SECOND_RATIO * top and top_counts[(locus, r["cdr3_nt"])] >= CROSS_CELL_MIN:
+                    stats["cross_cell_contigs_removed"] += 1
+                    continue
+                ok.append(r)
+            if sum(1 for r in ok if r["umis"] >= 2) > MAX_STRONG_PER_LOCUS:
+                multiplet = True
+            passing.extend(ok[: KEEP_PER_LOCUS.get(locus, 1)])
+        keep = {id(r) for r in passing}
+        n_filt = sum(r["filtered_umis"] for r in passing)
+        max_depth = max((r["max_umi_reads"] for r in passing), default=0)
+        has_supported = any(r["umis"] >= 2 for r in passing)
+        vdj_cell = has_supported and n_filt >= 3 and max_depth >= floor and not multiplet
+        in_gex = gex_cells is None or bc in gex_cells
+        if vdj_cell:
+            stats["vdj_cells"] += 1
+            if not in_gex:
+                stats["vdj_cells_without_gex"] += 1
+        if multiplet and in_gex:
+            stats["multiplets"] += 1
+        is_cell = vdj_cell and in_gex
         for r in group:
             r["is_cell"] = is_cell
-            r["high_confidence"] = bool(r["productive"] and r["umis"] >= 2 and not drop)
+            r["vdj_cell"] = vdj_cell
+            r["multiplet"] = multiplet
+            r["passes_filter"] = id(r) in keep
+            r["high_confidence"] = bool(r["passes_filter"] and r["umis"] >= 2)
             r["raw_clonotype_id"] = ""
             r["raw_consensus_id"] = ""
+    return stats
+
+
+def _in_cell(row: dict) -> bool:
+    return bool(row.get("is_cell") and row.get("productive") and row.get("passes_filter", True))
 
 
 def assign_clonotypes(rows: list[dict]) -> tuple[list[dict], list[dict]]:
     cells: dict[str, list[dict]] = defaultdict(list)
     for row in rows:
-        if row.get("is_cell") and row.get("productive"):
+        if _in_cell(row):
             cells[row["barcode"]].append(row)
     groups: dict[tuple, list[str]] = defaultdict(list)
     for bc, group in cells.items():
@@ -745,7 +912,7 @@ def assign_clonotypes(rows: list[dict]) -> tuple[list[dict], list[dict]]:
         c["proportion"] = c["frequency"] / n_cells
     for row in rows:
         cid = bc_to_id.get(row["barcode"], "")
-        if row.get("is_cell") and row.get("productive"):
+        if _in_cell(row):
             row["raw_clonotype_id"] = cid
     consensus = []
     for c in clonotypes:
@@ -812,13 +979,38 @@ CONTIG_COLS = [
 ]
 
 
-def write_library(outdir: Path, receptor: str, rows: list[dict], n_reads: int, n_barcodes_kept: int) -> dict:
+def write_library(
+    outdir: Path,
+    receptor: str,
+    rows: list[dict],
+    n_reads: int,
+    n_barcodes_kept: int,
+    call_stats: dict | None = None,
+) -> dict:
     outdir.mkdir(parents=True, exist_ok=True)
     rows.sort(key=lambda r: (r["barcode"], r["chain"], -r["umis"]))
     for i, row in enumerate(rows, start=1):
         row["contig_id"] = f"{row['barcode']}_contig_{i}"
     clonotypes, consensus = assign_clonotypes(rows)
-    filtered = [r for r in rows if r.get("is_cell") and r.get("productive")]
+    filtered = [r for r in rows if _in_cell(r)]
+    rejected: dict[str, int] = defaultdict(int)
+    for r in rows:
+        if r.get("vdj_cell") and not r.get("is_cell") and r.get("productive") and r.get("passes_filter"):
+            rejected[r["barcode"]] += r["umis"]
+    _write_csv(
+        outdir / "vdj_cells_without_gex.csv",
+        [{"barcode": bc, "umis": n} for bc, n in sorted(rejected.items())],
+        ["barcode", "umis"],
+    )
+    multiplets: dict[str, int] = defaultdict(int)
+    for r in rows:
+        if r.get("multiplet") and r.get("productive"):
+            multiplets[r["barcode"]] += r["umis"]
+    _write_csv(
+        outdir / "vdj_multiplets.csv",
+        [{"barcode": bc, "productive_umis": n} for bc, n in sorted(multiplets.items())],
+        ["barcode", "productive_umis"],
+    )
     _write_csv(outdir / "all_contig_annotations.csv", rows, CONTIG_COLS)
     _write_csv(outdir / "filtered_contig_annotations.csv", filtered, CONTIG_COLS)
     _write_csv(
@@ -909,6 +1101,8 @@ def write_library(outdir: Path, receptor: str, rows: list[dict], n_reads: int, n
         "chemistry": CHEMISTRY,
         "barcode_whitelist": WHITELIST_NAME,
     }
+    for key, value in (call_stats or {}).items():
+        metrics[key] = value
     with (outdir / "metrics_summary.csv").open("w", newline="") as fh:
         w = csv.writer(fh)
         w.writerow(["metric", "value"])
@@ -918,17 +1112,44 @@ def write_library(outdir: Path, receptor: str, rows: list[dict], n_reads: int, n
     return metrics
 
 
+def load_gex_cells(path: Path) -> set[str]:
+    path = Path(path)
+    if path.suffix == ".h5ad":
+        import anndata as ad
+
+        names = list(ad.read_h5ad(path, backed="r").obs_names)
+    else:
+        opener = gzip.open if path.suffix == ".gz" else open
+        with opener(path, "rt") as fh:
+            names = [line.strip().split(",")[0] for line in fh if line.strip()]
+    return {str(n).split("-")[0] for n in names}
+
+
 def run_vdj_library(lib: dict, receptor: str, ref: Reference, whitelist: set[str], outdir: Path, vdj_cfg: dict) -> dict:
     chains = set(TCR_CHAINS if receptor == "TCR" else BCR_CHAINS)
     max_reads = vdj_cfg.get("max_reads")
     min_pairs = int(lib.get("min_read_pairs", vdj_cfg.get("min_read_pairs", 6)))
-    counts = count_barcodes(lib["reads1"], lib["reads2"], whitelist, max_reads)
-    keep = {bc for bc, n in counts.items() if n >= min_pairs}
-    print(f"vdj {receptor}: {len(keep):,} barcodes with ≥{min_pairs} read pairs", flush=True)
-    groups, n_reads = collect_groups(lib["reads1"], lib["reads2"], whitelist, keep, ref, chains, max_reads)
-    rows = contigs_from_groups(groups, ref, chains, receptor)
-    call_cells(rows)
-    return write_library(outdir, receptor, rows, n_reads, len(keep))
+    cache = outdir / GROUPS_CACHE
+    if vdj_cfg.get("reuse_groups") and cache.exists():
+        with gzip.open(cache, "rb") as fh:
+            groups, n_reads, n_keep = pickle.load(fh)
+        print(f"vdj {receptor}: reusing {len(groups):,} groups from {cache}", flush=True)
+    else:
+        counts = count_barcodes(lib["reads1"], lib["reads2"], whitelist, max_reads)
+        keep = {bc for bc, n in counts.items() if n >= min_pairs}
+        n_keep = len(keep)
+        print(f"vdj {receptor}: {n_keep:,} barcodes with ≥{min_pairs} read pairs", flush=True)
+        groups, n_reads = collect_groups(lib["reads1"], lib["reads2"], whitelist, keep, ref, chains, max_reads)
+        outdir.mkdir(parents=True, exist_ok=True)
+        with gzip.open(cache, "wb") as fh:
+            pickle.dump((groups, n_reads, n_keep), fh, protocol=pickle.HIGHEST_PROTOCOL)
+    rows = merge_variants(contigs_from_groups(groups, ref, chains, receptor))
+    gex_path = lib.get("gex_cells", vdj_cfg.get("gex_cells"))
+    gex_cells = load_gex_cells(Path(gex_path)) if gex_path else None
+    stats = call_cells(rows, gex_cells)
+    stats["gex_anchored"] = gex_cells is not None
+    print(f"vdj {receptor}: {stats}", flush=True)
+    return write_library(outdir, receptor, rows, n_reads, n_keep, stats)
 
 
 def _register_chemistry(whitelist_txt: Path) -> None:
@@ -979,10 +1200,14 @@ def run_vdj(cfg: dict, outdir: Path) -> dict | None:
             with gzip.open(wl_path, "rt") as src, plain.open("w") as dst:
                 dst.write(src.read())
     _register_chemistry(plain)
+    wanted = {r.lower() for r in vdj.get("receptors", ("tcr", "bcr"))}
+    run_json = outdir / "vdj" / "vdj_run.json"
     out: dict = {"chemistry": CHEMISTRY, "whitelist": str(wl_path), "reference": str(reference), "libraries": {}}
-    if ready(tcr):
+    if run_json.exists() and wanted != {"tcr", "bcr"}:
+        out["libraries"] = json.loads(run_json.read_text()).get("libraries", {})
+    if ready(tcr) and "tcr" in wanted:
         out["libraries"]["TCR"] = run_vdj_library(tcr, "TCR", ref, whitelist, outdir / "vdj" / "tcr", vdj)
-    if ready(bcr):
+    if ready(bcr) and "bcr" in wanted:
         out["libraries"]["BCR"] = run_vdj_library(bcr, "BCR", ref, whitelist, outdir / "vdj" / "bcr", vdj)
-    (outdir / "vdj" / "vdj_run.json").write_text(json.dumps(out, indent=2) + "\n")
+    run_json.write_text(json.dumps(out, indent=2) + "\n")
     return out
