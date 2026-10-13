@@ -72,6 +72,7 @@ class Reference:
     j_kmers: dict[str, list[tuple[str, str]]]
     d_kmers: dict[str, list[tuple[str, str]]]
     c_kmers: dict[str, list[tuple[str, str]]]
+    v_suffix: dict[tuple[str, str], list[Segment]] = field(default_factory=dict)
 
 
 @dataclass
@@ -85,8 +86,7 @@ class Cdr3Hit:
 
 @dataclass
 class Group:
-    pairs: set[int] = field(default_factory=set)
-    umi_pairs: dict[str, set[int]] = field(default_factory=dict)
+    umi_reads: dict[str, int] = field(default_factory=dict)
     seqs: list[tuple[str, int, int]] = field(default_factory=list)
 
 
@@ -262,7 +262,12 @@ def parse_regions_fa(path: Path) -> Reference:
             sig = seg.seq[:80]
             for i in range(0, max(0, len(sig) - 11)):
                 c_kmers[sig[i : i + 12]].append((seg.chain, seg.gene))
-    return Reference(segments, v_by, j_by, d_by, c_by, v_kmers, j_kmers, d_kmers, c_kmers)
+    v_suffix: dict[tuple[str, str], list[Segment]] = defaultdict(list)
+    for chain, segs in v_by.items():
+        for seg in segs:
+            if seg.anchor is not None and seg.anchor >= 6:
+                v_suffix[(chain, seg.seq[seg.anchor - 6 : seg.anchor])].append(seg)
+    return Reference(segments, v_by, j_by, d_by, c_by, v_kmers, j_kmers, d_kmers, c_kmers, v_suffix)
 
 
 def resolve_regions_fa(reference: Path) -> Path:
@@ -348,27 +353,53 @@ def _gene_seq(ref: Reference, chain: str, gene: str, region: str) -> Segment | N
     return None
 
 
+def _suffix_neighbors(mer: str):
+    yield mer
+    for i, base in enumerate(mer):
+        for alt in "ACGT":
+            if alt != base:
+                yield mer[:i] + alt + mer[i + 1 :]
+
+
+def _match_v_suffix(up: str, chain: str, ref: Reference) -> Segment | None:
+    if len(up) < 6:
+        return None
+    allow = 1 if len(up) < 12 else max(1, len(up) // 6)
+    seen: set[str] = set()
+    best: tuple[int, Segment] | None = None
+    for mer in _suffix_neighbors(up[-6:]):
+        for seg in ref.v_suffix.get((chain, mer), ()):
+            if seg.gene in seen or seg.anchor is None or seg.anchor < len(up):
+                continue
+            seen.add(seg.gene)
+            dist = hamming(up, seg.seq[seg.anchor - len(up) : seg.anchor])
+            if dist <= allow and (best is None or dist < best[0]):
+                best = (dist, seg)
+    return None if best is None else best[1]
+
+
 def annotate_read(seq: str, hit: Cdr3Hit, ref: Reference, chains: set[str]) -> dict | None:
     up = seq[max(0, hit.start - 60) : hit.start]
     down = seq[hit.end - 3 : hit.end + 36]
-    v_votes = _vote(up, ref.v_kmers, 12, chains)
     j_votes = _vote(down, ref.j_kmers, 12, chains)
-    if not v_votes or not j_votes:
+    if not j_votes:
         return None
-    (v_chain, v_gene), v_n = v_votes.most_common(1)[0]
-    j_cands = [(cj, n) for cj, n in j_votes.items() if cj[0] == v_chain]
-    if not j_cands:
+    (j_chain, j_gene), j_n = j_votes.most_common(1)[0]
+    if j_n < 1:
         return None
-    (j_chain, j_gene), j_n = max(j_cands, key=lambda x: x[1])
-    if v_n < 2 or j_n < 1:
-        return None
-    v = _gene_seq(ref, v_chain, v_gene, "V")
+    v_votes = _vote(up, ref.v_kmers, 12, {j_chain})
+    v = None
+    if v_votes:
+        (v_chain, v_gene), v_n = v_votes.most_common(1)[0]
+        if v_n >= 2 and v_chain == j_chain:
+            v = _gene_seq(ref, v_chain, v_gene, "V")
+    if v is None:
+        v = _match_v_suffix(up, j_chain, ref)
     j = _gene_seq(ref, j_chain, j_gene, "J")
-    if v is None or j is None or v.anchor is None or j.anchor is None:
+    if v is None or j is None or v.anchor is None or j.anchor is None or v.anchor < 30:
         return None
-    if hit.start < 30 or v.anchor < 30:
-        return None
-    if hamming(seq[hit.start - 30 : hit.start], v.seq[v.anchor - 30 : v.anchor]) > 8:
+    v_chain, v_gene = v.chain, v.gene
+    if len(up) >= 30 and hamming(up[-30:], v.seq[v.anchor - 30 : v.anchor]) > 8:
         return None
     mid = seq[hit.start + 3 : hit.end - 3]
     d_votes = _vote(mid, ref.d_kmers, 8, {v_chain})
@@ -504,7 +535,13 @@ def count_barcodes(reads1, reads2, whitelist: set[str], max_reads: int | None) -
 
 
 def collect_groups(reads1, reads2, whitelist, keep: set[str], ref: Reference, chains: set[str], max_reads: int | None):
-    groups: dict[tuple[str, str], Group] = {}
+    """One CDR3 per UMI, then group UMIs that share that CDR3.
+
+    Read 2 of a 5' library usually starts in J, so the cysteine is only a few
+    bases into the sense read. Each read pair votes once; PCR copies of the
+    same UMI are not split when their CDR3 nucleotides disagree.
+    """
+    umis: dict[tuple[str, str], dict] = {}
     n = 0
     n_hit = 0
     for s1, s2 in iter_read_pairs(reads1, reads2, max_reads):
@@ -514,39 +551,56 @@ def collect_groups(reads1, reads2, whitelist, keep: set[str], ref: Reference, ch
         if fixed not in keep or "N" in umi:
             continue
         seqs = []
-        if len(insert) >= 60:
+        if len(insert) >= 40:
             seqs.append(insert)
         r2 = _trim_sense(revcomp(s2))
-        if len(r2) >= 60:
+        if len(r2) >= 40:
             seqs.append(r2)
-        seen = set()
+        best = None
         for seq in seqs:
             hit = find_cdr3(seq)
-            if hit is None or hit.nt in seen:
+            if hit is None:
                 continue
             ann = annotate_read(seq, hit, ref, chains)
             if ann is None:
                 continue
-            seen.add(hit.nt)
-            n_hit += 1
-            key = (fixed, hit.nt)
-            group = groups.get(key)
-            if group is None:
-                group = Group()
-                groups[key] = group
-            group.pairs.add(n)
-            group.umi_pairs.setdefault(umi, set()).add(n)
-            _keep_seq(group, seq, hit.start, hit.flank)
+            rank = (hit.flank, hit.start, len(seq))
+            if best is None or rank > best[0]:
+                best = (rank, hit, seq)
+        if best is None:
+            continue
+        _rank, hit, seq = best
+        n_hit += 1
+        rec = umis.get((fixed, umi))
+        if rec is None:
+            rec = {"reads": 0, "votes": Counter(), "best": {}}
+            umis[(fixed, umi)] = rec
+        rec["reads"] += 1
+        rec["votes"][hit.nt] += 1
+        prev = rec["best"].get(hit.nt)
+        cand = (hit.flank, hit.start, seq)
+        if prev is None or cand[:2] > prev[:2]:
+            rec["best"][hit.nt] = cand
         if n % 2000000 == 0:
-            print(f"vdj annotate pass {n:,} reads, {len(groups):,} CDR3 groups, {n_hit:,} hits", flush=True)
-    print(f"vdj annotate pass done {n:,} reads, {len(groups):,} groups", flush=True)
+            print(f"vdj annotate pass {n:,} reads, {len(umis):,} UMIs, {n_hit:,} hits", flush=True)
+    groups: dict[tuple[str, str], Group] = {}
+    for (bc, umi), rec in umis.items():
+        nt = max(rec["votes"], key=lambda k: (rec["votes"][k], rec["best"][k][0]))
+        flank, start, seq = rec["best"][nt]
+        group = groups.get((bc, nt))
+        if group is None:
+            group = Group()
+            groups[(bc, nt)] = group
+        group.umi_reads[umi] = group.umi_reads.get(umi, 0) + rec["reads"]
+        _keep_seq(group, seq, start, flank)
+    print(f"vdj annotate pass done {n:,} reads, {len(groups):,} groups from {len(umis):,} UMIs", flush=True)
     return groups, n
 
 
-def _collapse_umis(umi_pairs: dict[str, set[int]]) -> dict[str, set[int]]:
-    if len(umi_pairs) < 2:
-        return {u: set(ps) for u, ps in umi_pairs.items()}
-    parent = {u: u for u in umi_pairs}
+def _collapse_umis(umi_reads: dict[str, int]) -> dict[str, int]:
+    if len(umi_reads) < 2:
+        return dict(umi_reads)
+    parent = {u: u for u in umi_reads}
 
     def find(x: str) -> str:
         while parent[x] != x:
@@ -555,9 +609,9 @@ def _collapse_umis(umi_pairs: dict[str, set[int]]) -> dict[str, set[int]]:
         return x
 
     def size(x: str) -> int:
-        return len(umi_pairs[find(x)])
+        return umi_reads[find(x)]
 
-    for u in list(umi_pairs):
+    for u in list(umi_reads):
         for i, base in enumerate(u):
             for alt in "ACGT":
                 if alt == base:
@@ -567,9 +621,10 @@ def _collapse_umis(umi_pairs: dict[str, set[int]]) -> dict[str, set[int]]:
                     continue
                 if size(nb) >= size(u):
                     parent[find(u)] = find(nb)
-    merged: dict[str, set[int]] = {}
-    for u, pairs in umi_pairs.items():
-        merged.setdefault(find(u), set()).update(pairs)
+    merged: dict[str, int] = {}
+    for u, reads in umi_reads.items():
+        root = find(u)
+        merged[root] = merged.get(root, 0) + reads
     return merged
 
 
@@ -585,17 +640,18 @@ def contigs_from_groups(groups: dict[tuple[str, str], Group], ref: Reference, ch
         ann = annotate_read(seq, hit, ref, chains)
         if ann is None or ann["chain"] not in chains:
             continue
-        merged = _collapse_umis(group.umi_pairs)
-        depths = [len(ps) for ps in merged.values()]
+        merged = _collapse_umis(group.umi_reads)
+        depths = list(merged.values())
         rows.append(
             {
                 **ann,
                 "barcode": bc,
                 "receptor": receptor,
-                "reads": len(group.pairs),
+                "reads": sum(depths),
                 "umis": len(merged),
                 "filtered_umis": sum(1 for d in depths if d >= 2),
                 "max_umi_reads": max(depths) if depths else 0,
+                "umi_depths": depths,
             }
         )
     return rows
@@ -621,8 +677,8 @@ def call_cells(rows: list[dict]) -> None:
     umi_depths = []
     for group in by_bc.values():
         for row in group:
-            if row["filtered_umis"]:
-                umi_depths.extend([row["max_umi_reads"]] * row["filtered_umis"])
+            if row["productive"]:
+                umi_depths.extend(d for d in row.get("umi_depths", ()) if d >= 2)
     n50 = _n50(umi_depths) if umi_depths else 0.0
     floor = 0.03 * n50
     for bc, group in by_bc.items():
@@ -637,17 +693,15 @@ def call_cells(rows: list[dict]) -> None:
             vs = {r["v_gene"] for r in strong}
             if len(cdrs) > 1 and len(vs) == 1:
                 drop = True
-        n_filt = sum(r["filtered_umis"] for r in group)
-        max_depth = max((r["max_umi_reads"] for r in group), default=0)
-        only = len(productive) == 1
-        junction_ok = (not only) or (productive and productive[0]["umis"] > 1)
+        n_filt = sum(r["filtered_umis"] for r in productive)
+        max_depth = max((r["max_umi_reads"] for r in productive), default=0)
+        has_supported = any(r["umis"] >= 2 for r in productive)
         is_cell = (
-            bool(productive)
-            and junction_ok
+            has_supported
             and n_filt >= 3
             and max_depth >= floor
             and not drop
-            and len(productive) <= 4
+            and 0 < len(productive) <= 4
         )
         for r in group:
             r["is_cell"] = is_cell

@@ -109,7 +109,7 @@ Omit `adt` for GEX-only; omit `ocm` (or `"mode": "quant"`) to skip demux. Defaul
 
 GEM-X Single Cell 5' v3 (CG000733): Read 1 is 16 bp barcode + 12 bp UMI + TSO `TTTCTTATATGGG`. Barcode inclusion list is `3M-5pgex-jan-2023` (Single Cell 5' v3). Chemistry name `10xv3-5p`, geometry `1{b[16]u[12]x:}2{r:}`. Recommended cycles are 28 / 10 / 10 / 90; extra Read 1 cycles are TSO plus the start of the insert.
 
-A VDJ-only config omits `gex`. `vdj.tcr` / `vdj.bcr` take `fastqs` or `reads1`/`reads2`. Assembly follows the Cell Ranger V(D)J steps: whitelist correction (one mismatch), per-barcode CDR3s from the conserved cysteine through FGXG/WGXG (26–80 nt), reference-guided V/J contigs, productive = V start codon through the end of J, in frame, no stop. Cells need a productive contig, at least three UMIs with two read pairs, and a per-UMI depth of at least 3% of the N50. Clonotypes are shared productive CDR3 nucleotide sequences.
+A VDJ-only config omits `gex`. `vdj.tcr` / `vdj.bcr` take `fastqs` or `reads1`/`reads2`. Assembly follows the Cell Ranger V(D)J steps: whitelist correction (one mismatch), per-barcode CDR3s from the conserved cysteine through FGXG/WGXG (26–80 nt), reference-guided V/J contigs, productive = V start codon through the end of J, in frame, no stop. Read 2 often starts in J, so a CDR3 with only a short V overhang is kept when that overhang matches the V anchor. Each UMI votes for one CDR3. A cell needs a productive contig with at least two UMIs, three UMIs that have two reads, and a UMI deeper than 3% of the library N50. Cells need a productive contig, at least three UMIs with two read pairs, and a per-UMI depth of at least 3% of the N50. Clonotypes are shared productive CDR3 nucleotide sequences.
 
 ```json
 {
