@@ -5,6 +5,7 @@ from lib.vdj import (
     CHEMISTRY,
     GEOMETRY,
     TSO,
+    _c_prefix,
     annotate_read,
     call_cells,
     correct_barcode,
@@ -264,6 +265,18 @@ class VdjTests(unittest.TestCase):
         self.assertIn(("CLONEAATC00AAAAA", big_b), kept)
         self.assertTrue(all((f"INKTAAAGT{i:02d}GGGGG", invariant_a) in kept for i in range(12)))
         self.assertEqual(stats["partner_contigs_removed"], 2)
+
+    def test_isotype_from_few_c_bases_after_j(self):
+        if not REF.exists():
+            self.skipTest("mouse V(D)J reference not on disk")
+        ref = parse_regions_fa(resolve_regions_fa(REF))
+        j = next(s for s in ref.j_by_chain["IGH"] if s.gene == "IGHJ3")
+        tail = j.seq[-20:]
+        self.assertEqual(_c_prefix(tail + "CCAAAACGAC", "IGH", j, ref), "IGHG1")
+        self.assertEqual(_c_prefix(tail + "CCAAAACAAC", "IGH", j, ref), "IGHG2")
+        self.assertEqual(_c_prefix(tail + "CCAAAAC", "IGH", j, ref), "IGHG")
+        self.assertEqual(_c_prefix(tail + "AGAGTC", "IGH", j, ref), "IGHM")
+        self.assertEqual(_c_prefix(tail + "CC", "IGH", j, ref), "")
 
     def test_mouse_vdj_reference_parses(self):
         if not REF.exists():

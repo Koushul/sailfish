@@ -22,6 +22,7 @@ import csv
 import gzip
 import json
 import math
+import os
 import pickle
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
@@ -67,6 +68,7 @@ CONTAM_MIN_CELLS = 10
 PARTNER_FRAC = 0.05
 CONTAM_CORE_RATIO = 0.5
 PARTNER_SHM_FRAC = 0.15
+C_PREFIX_MIN = 4
 PARTNER_LOCUS = {"TRB": "TRA", "TRA": "TRB", "IGH": "IGK/IGL", "IGK/IGL": "IGH"}
 GROUPS_CACHE = "groups.pkl.gz"
 
@@ -648,6 +650,54 @@ def _collapse_umis(umi_reads: dict[str, int]) -> dict[str, int]:
     return merged
 
 
+def _c_prefix(tail: str, chain: str, j: Segment | None, ref: Reference) -> str:
+    """C gene from the few C bases between the end of J and the read end.
+
+    Read 2 starts at the inner enrichment primer, which sits a handful of bases
+    into the C exon, so reads often carry only 4-10 bases of C, too few for the
+    12-mer index. When the bases cannot separate subclasses the shared gene
+    family is returned (for example ``IGHG``).
+    """
+    if j is None or len(j.seq) < 10:
+        return ""
+    probe = j.seq[-10:]
+    end = next((p + 10 for p in range(len(tail) - 9) if hamming(tail[p : p + 10], probe) <= 1), None)
+    if end is None:
+        return ""
+    after = tail[end : end + 24]
+    if len(after) < C_PREFIX_MIN:
+        return ""
+    genes = {seg.gene for seg in ref.c_by_chain.get(chain, ()) if seg.seq.startswith(after) or after.startswith(seg.seq[: len(after)])}
+    if len(genes) == 1:
+        return genes.pop()
+    family = os.path.commonprefix(sorted(genes))
+    return family if len(family) > len(chain) else ""
+
+
+def _c_call(seqs, ann: dict, ref: Reference) -> str:
+    """Constant gene voted over every kept read of the group.
+
+    The representative read is chosen for its CDR3 flanks and is often the 5'
+    read that never reaches C; Read 2 ends at the C-region primer.
+    """
+    chain, cdr3_nt = ann["chain"], ann["cdr3_nt"]
+    j = _gene_seq(ref, chain, ann["j_gene"], "J")
+    votes: Counter = Counter()
+    for seq, _start, _flank in seqs:
+        at = seq.find(cdr3_nt)
+        if at < 0:
+            continue
+        tail = seq[at + len(cdr3_nt) :]
+        c = _vote(tail, ref.c_kmers, 12, {chain})
+        gene = c.most_common(1)[0][0][1] if c else _c_prefix(tail, chain, j, ref)
+        if gene:
+            votes[gene] += 1
+    specific = Counter({g: n for g, n in votes.items() if not any(o != g and o.startswith(g) for o in votes)})
+    if specific:
+        return specific.most_common(1)[0][0]
+    return votes.most_common(1)[0][0] if votes else ""
+
+
 def contigs_from_groups(groups: dict[tuple[str, str], Group], ref: Reference, chains: set[str], receptor: str) -> list[dict]:
     rows = []
     for (bc, _nt), group in groups.items():
@@ -660,6 +710,7 @@ def contigs_from_groups(groups: dict[tuple[str, str], Group], ref: Reference, ch
         ann = annotate_read(seq, hit, ref, chains)
         if ann is None or ann["chain"] not in chains:
             continue
+        ann["c_gene"] = _c_call(group.seqs, ann, ref) or ann["c_gene"]
         merged = _collapse_umis(group.umi_reads)
         depths = list(merged.values())
         rows.append(
