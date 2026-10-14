@@ -219,6 +219,52 @@ class VdjTests(unittest.TestCase):
         self.assertIn((plasma, lung_top), kept)
         self.assertNotIn((plasma, own), kept)
 
+    def test_dominant_chain_with_wrong_partner_is_dropped_but_invariant_chain_kept(self):
+        big_b, big_a = "TGTGCCAGCAGGGCAGGGGAGTTT", "TGTGCAGCAGGCGGCTATTTT"
+
+        def row(bc, chain, cdr3, umis):
+            return {
+                "barcode": bc,
+                "productive": True,
+                "chain": chain,
+                "v_gene": f"{chain}V1",
+                "cdr3_nt": cdr3,
+                "umis": umis,
+                "reads": umis * 3,
+                "filtered_umis": umis,
+                "max_umi_reads": 4,
+                "umi_depths": [4] * umis,
+            }
+
+        rows, gex = [], set()
+        for i in range(20):
+            bc = f"CLONEAATC{i:02d}AAAAA"
+            gex.add(bc)
+            rows += [row(bc, "TRB", big_b, 40), row(bc, "TRA", big_a, 20)]
+        invariant_a = "TGTGTGGTGGGCGATAGAGGTTCAGCCTTTTT"
+        for i in range(12):
+            bc = f"INKTAAAGT{i:02d}GGGGG"
+            gex.add(bc)
+            rows += [row(bc, "TRA", invariant_a, 6), row(bc, "TRB", f"TGTGCCAGC{'ACGT'[i % 4] * 6}{i:03d}TTT".replace("0", "A"), 6)]
+        contaminated = "OTHERAAGTCCCCCCC"
+        own_b, own_a = "TGTGCCAGCAGTTTAGGTTT", "TGTGCAGTGAGCCCCTTT"
+        lost_own_b = "NOOWNAAGTCCCCCCC"
+        mutated = "MUTATAATCCCCCCCC"
+        gex |= {contaminated, lost_own_b, mutated}
+        rows += [row(contaminated, "TRB", big_b, 9), row(contaminated, "TRB", own_b, 3), row(contaminated, "TRA", own_a, 5)]
+        rows += [row(lost_own_b, "TRB", big_b, 9), row(lost_own_b, "TRA", "TGTGCAGTGAGCGGGTTT", 5)]
+        rows += [row(mutated, "TRB", big_b, 9), row(mutated, "TRA", "TGTGCAGCAGGCGGCTTTTTT", 5)]
+        stats = call_cells(rows, gex_cells=gex)
+        kept = {(r["barcode"], r["cdr3_nt"]) for r in rows if r.get("passes_filter")}
+        self.assertIn((contaminated, own_b), kept)
+        self.assertNotIn((contaminated, big_b), kept)
+        self.assertNotIn((lost_own_b, big_b), kept)
+        self.assertIn((lost_own_b, "TGTGCAGTGAGCGGGTTT"), kept)
+        self.assertIn((mutated, big_b), kept)
+        self.assertIn(("CLONEAATC00AAAAA", big_b), kept)
+        self.assertTrue(all((f"INKTAAAGT{i:02d}GGGGG", invariant_a) in kept for i in range(12)))
+        self.assertEqual(stats["partner_contigs_removed"], 2)
+
     def test_mouse_vdj_reference_parses(self):
         if not REF.exists():
             self.skipTest("mouse V(D)J reference not on disk")

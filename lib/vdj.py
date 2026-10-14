@@ -63,6 +63,11 @@ AMBIENT_P = 1e-3
 AMBIENT_MIN_UMIS = 50
 SECOND_RATIO = 0.5
 CROSS_CELL_MIN = 2
+CONTAM_MIN_CELLS = 10
+PARTNER_FRAC = 0.05
+CONTAM_CORE_RATIO = 0.5
+PARTNER_SHM_FRAC = 0.15
+PARTNER_LOCUS = {"TRB": "TRA", "TRA": "TRB", "IGH": "IGK/IGL", "IGK/IGL": "IGH"}
 GROUPS_CACHE = "groups.pkl.gz"
 
 
@@ -793,6 +798,89 @@ def _own_contigs(locus_rows: list[dict], prof: dict[str, float] | None) -> list[
     return [r for r in locus_rows if id(r) in own]
 
 
+def _floor_loci(loci: dict[str, list[dict]]) -> dict[str, list[dict]]:
+    cell_top = max((own[0]["umis"] for own in loci.values()), default=0)
+    out = {}
+    for locus, own in loci.items():
+        min_umis = max(1.0, LOCUS_FLOOR * own[0]["umis"], CELL_FLOOR * cell_top)
+        own = [r for r in own if r["umis"] >= min_umis]
+        if own:
+            out[locus] = own
+    return out
+
+
+def _partner_set(own_loci: dict[str, list[dict]], locus: str) -> set[str]:
+    partner = PARTNER_LOCUS.get(locus)
+    rows = own_loci.get(partner, []) if partner else []
+    return {r["cdr3_nt"] for r in rows[: KEEP_PER_LOCUS.get(partner, 1)]}
+
+
+def _partner_stats(own_by_bc, top_counts, gex_cells):
+    """Partner chains of each abundant chain, and its UMIs in cells that carry them.
+
+    A real clone repeats its pairing, whereas a chain swapped into other
+    barcodes after the wells are pooled lands next to whatever chains those
+    cells already have.
+    """
+    pair_counts: dict[tuple[str, str], Counter] = defaultdict(Counter)
+    for bc, own_loci in own_by_bc.items():
+        if gex_cells is not None and bc not in gex_cells:
+            continue
+        for locus, own in own_loci.items():
+            key = (locus, own[0]["cdr3_nt"])
+            if top_counts[key] >= CONTAM_MIN_CELLS:
+                pair_counts[key].update(_partner_set(own_loci, locus))
+    pairs = {
+        key: {p for p, n in c.items() if n >= max(CROSS_CELL_MIN, PARTNER_FRAC * top_counts[key])}
+        for key, c in pair_counts.items()
+    }
+    pairs = {k: v for k, v in pairs.items() if v}
+    umis: dict[tuple[str, str], list[int]] = defaultdict(list)
+    for bc, own_loci in own_by_bc.items():
+        for locus, own in own_loci.items():
+            key = (locus, own[0]["cdr3_nt"])
+            if key in pairs and _partner_match(pairs[key], _partner_set(own_loci, locus)):
+                umis[key].append(own[0]["umis"])
+    core_umis = {key: sorted(v)[len(v) // 2] for key, v in umis.items()}
+    return pairs, core_umis
+
+
+def _partner_match(core: set[str], partners: set[str]) -> bool:
+    """Exact, or within somatic-hypermutation distance of a core partner."""
+    if core & partners:
+        return True
+    return any(
+        len(a) == len(b) and hamming(a, b) <= max(MERGE_MAX_MISMATCH, PARTNER_SHM_FRAC * len(a))
+        for a in core
+        for b in partners
+    )
+
+
+def _drop_contaminants(locus, own, own_loci, top_counts, pairs, core_umis):
+    """Remove abundant library chains that sit with the wrong partner.
+
+    Only chains of a clone with a consistent partner are judged, so invariant
+    chains (MAIT, iNKT TRA) that pair with many partners are never touched.
+    A chain is dropped when the cell has partner chains to judge by, none of
+    them is the clone's partner, and the chain is much weaker than in the
+    clone's own cells. Runs before the per-locus floor so that floor is set by
+    the cell's own chain rather than the contaminant.
+    """
+    partners = _partner_set(own_loci, locus)
+    if not partners:
+        return own
+
+    def suspect(r: dict) -> bool:
+        key = (locus, r["cdr3_nt"])
+        if key not in pairs or top_counts[key] < CONTAM_MIN_CELLS:
+            return False
+        if r["umis"] >= CONTAM_CORE_RATIO * core_umis.get(key, 0):
+            return False
+        return not _partner_match(pairs[key], partners)
+
+    return [r for r in own if not suspect(r)]
+
+
 def call_cells(rows: list[dict], gex_cells: set[str] | None = None, ambient: bool = True) -> dict:
     by_bc: dict[str, list[dict]] = defaultdict(list)
     for row in rows:
@@ -812,33 +900,40 @@ def call_cells(rows: list[dict], gex_cells: set[str] | None = None, ambient: boo
         "ambient_contigs_removed": 0,
         "cross_cell_contigs_removed": 0,
     }
+    raw_by_bc: dict[str, dict[str, list[dict]]] = {}
     own_by_bc: dict[str, dict[str, list[dict]]] = {}
     top_counts: Counter = Counter()
     for bc, group in by_bc.items():
-        productive = [r for r in group if r["productive"]]
-        cell_top = max((r["umis"] for r in productive), default=0)
         by_locus: dict[str, list[dict]] = defaultdict(list)
-        for r in productive:
-            by_locus[_locus(r["chain"])].append(r)
-        own_loci = {}
+        for r in group:
+            if r["productive"]:
+                by_locus[_locus(r["chain"])].append(r)
+        raw_loci = {}
         for locus, locus_rows in by_locus.items():
             locus_rows.sort(key=lambda r: (-r["umis"], -r.get("reads", 0)))
             own = _own_contigs(locus_rows, profile.get((bc[7:9], locus)))
             stats["ambient_contigs_removed"] += len(locus_rows) - len(own)
-            if not own:
-                continue
-            min_umis = max(1.0, LOCUS_FLOOR * own[0]["umis"], CELL_FLOOR * cell_top)
-            own = [r for r in own if r["umis"] >= min_umis]
-            if not own:
-                continue
-            own_loci[locus] = own
-            if own[0]["umis"] >= 2 and (gex_cells is None or bc in gex_cells):
-                top_counts[(locus, own[0]["cdr3_nt"])] += 1
+            if own:
+                raw_loci[locus] = own
+        own_loci = _floor_loci(raw_loci)
+        raw_by_bc[bc] = raw_loci
         own_by_bc[bc] = own_loci
+        if gex_cells is None or bc in gex_cells:
+            for locus, own in own_loci.items():
+                if own[0]["umis"] >= 2:
+                    top_counts[(locus, own[0]["cdr3_nt"])] += 1
+    pairs, core_umis = _partner_stats(own_by_bc, top_counts, gex_cells)
+    stats["partner_contigs_removed"] = 0
     for bc, group in by_bc.items():
         passing: list[dict] = []
         multiplet = False
-        for locus, own in own_by_bc[bc].items():
+        cleaned = {}
+        for locus, raw in raw_by_bc[bc].items():
+            kept_rows = _drop_contaminants(locus, raw, own_by_bc[bc], top_counts, pairs, core_umis)
+            stats["partner_contigs_removed"] += len(raw) - len(kept_rows)
+            if kept_rows:
+                cleaned[locus] = kept_rows
+        for locus, own in _floor_loci(cleaned).items():
             top = own[0]["umis"]
             ok = [own[0]]
             for r in own[1:]:
