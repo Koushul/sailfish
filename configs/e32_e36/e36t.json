@@ -1,0 +1,17 @@
+{
+  "sample": "E36T",
+  "output": "/ix1/ylee/kor11/TCR_BCR/runs/E36T",
+  "threads": 4,
+  "tools": {
+    "conda": "/ix1/ylee/kor11/tools/af_tutorial/conda_env"
+  },
+  "vdj": {
+    "reference": "/ix1/ylee/Yifan_Zhang/Cellranger_ref/refdata-cellranger-vdj-GRCm38-alts-ensembl-7.0.0",
+    "whitelist": "/ix1/ylee/kor11/TCR_BCR/refs/3M-5pgex-jan-2023.txt.gz",
+    "chemistry": "10xv3-5p",
+    "gex_cells": "/ix1/ylee/kor11/TCR_BCR/runs/E36T/ocm/E36T_gex_adt_ocm.h5ad",
+    "tcr": {
+      "fastqs": "/ix1/ylee/shared/E20_E30_Series/01.RawData/E36T_TCR"
+    }
+  }
+}

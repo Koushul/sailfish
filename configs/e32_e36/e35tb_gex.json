@@ -1,0 +1,51 @@
+{
+  "sample": "E35TB",
+  "mode": "ocm",
+  "output": "/ix1/ylee/kor11/TCR_BCR/runs/E35TB",
+  "threads": 12,
+  "min_gex_umi": 500,
+  "tools": {
+    "conda": "/ix1/ylee/kor11/tools/af_tutorial/conda_env"
+  },
+  "gex": {
+    "reads1": [
+      "/ix1/ylee/shared/E20_E30_Series/01.RawData/E35TB_GEX/E35TB_GEX-SI_TT_G4_23W5C2LT4_S2_L006_R1_001.fastq.gz"
+    ],
+    "reads2": [
+      "/ix1/ylee/shared/E20_E30_Series/01.RawData/E35TB_GEX/E35TB_GEX-SI_TT_G4_23W5C2LT4_S2_L006_R2_001.fastq.gz"
+    ],
+    "index": "/ix1/ylee/shared/E18S_E19S_E37S1_E37S2/E37S2_sailfish/refs/mouse-2024-A_splici/index",
+    "chemistry": "10xv3-5p"
+  },
+  "ocm": {
+    "samples": [
+      {
+        "ocm_barcode_id": "OB1",
+        "sample_id": "blood_cd4",
+        "overhang": "GT",
+        "description": "E35TB blood CD4 T cells",
+        "cells_sorted": 17200
+      },
+      {
+        "ocm_barcode_id": "OB2",
+        "sample_id": "blood_cd8",
+        "overhang": "CA",
+        "description": "E35TB blood CD8 T cells",
+        "cells_sorted": 3000
+      },
+      {
+        "ocm_barcode_id": "OB3",
+        "sample_id": "blood_cd19",
+        "overhang": "TC",
+        "description": "E35TB blood CD19 B cells",
+        "cells_sorted": 250
+      },
+      {
+        "ocm_barcode_id": "OB4",
+        "sample_id": "skin_cd4_cd8_pool",
+        "overhang": "AG",
+        "description": "E35TB skin CD4/CD8 pool (4450 CD4, 100 CD8)"
+      }
+    ]
+  }
+}

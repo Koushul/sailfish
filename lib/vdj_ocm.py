@@ -389,6 +389,7 @@ def write_vdj_h5ad(cfg: dict, path: Path) -> Path:
                     "population": population,
                     "sample_ul": float(spec["sample_ul"]) if "sample_ul" in spec else float("nan"),
                     "diluent_ul": float(spec["diluent_ul"]) if "diluent_ul" in spec else float("nan"),
+                    "cells_sorted": float(spec["cells_sorted"]) if "cells_sorted" in spec else float("nan"),
                 }
             )
         for receptor_name in lib["receptors"]:
@@ -423,6 +424,7 @@ def write_vdj_h5ad(cfg: dict, path: Path) -> Path:
                             "population": population,
                             "sample_ul": float(spec["sample_ul"]) if "sample_ul" in spec else float("nan"),
                             "diluent_ul": float(spec["diluent_ul"]) if "diluent_ul" in spec else float("nan"),
+                            "cells_sorted": float(spec["cells_sorted"]) if "cells_sorted" in spec else float("nan"),
                             "chain": row["chain"],
                             "v_gene": row["v_gene"],
                             "d_gene": row["d_gene"],

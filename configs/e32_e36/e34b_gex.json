@@ -1,0 +1,48 @@
+{
+  "sample": "E34B",
+  "mode": "ocm",
+  "output": "/ix1/ylee/kor11/TCR_BCR/runs/E34B",
+  "threads": 12,
+  "min_gex_umi": 500,
+  "tools": {
+    "conda": "/ix1/ylee/kor11/tools/af_tutorial/conda_env"
+  },
+  "gex": {
+    "reads1": [
+      "/ix1/ylee/shared/E20_E30_Series/01.RawData/E34B_GEX/E34B_GEX-SI_TT_G3_23W5C2LT4_S1_L006_R1_001.fastq.gz"
+    ],
+    "reads2": [
+      "/ix1/ylee/shared/E20_E30_Series/01.RawData/E34B_GEX/E34B_GEX-SI_TT_G3_23W5C2LT4_S1_L006_R2_001.fastq.gz"
+    ],
+    "index": "/ix1/ylee/shared/E18S_E19S_E37S1_E37S2/E37S2_sailfish/refs/mouse-2024-A_splici/index",
+    "chemistry": "10xv3-5p"
+  },
+  "ocm": {
+    "samples": [
+      {
+        "ocm_barcode_id": "OB1",
+        "sample_id": "kidney_cd19",
+        "overhang": "GT",
+        "description": "E34B CD19 B cells, kidney"
+      },
+      {
+        "ocm_barcode_id": "OB2",
+        "sample_id": "spleen_cd19",
+        "overhang": "CA",
+        "description": "E34B CD19 B cells, spleen"
+      },
+      {
+        "ocm_barcode_id": "OB3",
+        "sample_id": "liver_cd19",
+        "overhang": "TC",
+        "description": "E34B CD19 B cells, liver"
+      },
+      {
+        "ocm_barcode_id": "OB4",
+        "sample_id": "lung_cd19",
+        "overhang": "AG",
+        "description": "E34B CD19 B cells, lung"
+      }
+    ]
+  }
+}

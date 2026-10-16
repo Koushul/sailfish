@@ -1,0 +1,187 @@
+{
+  "summary": "/ix1/ylee/kor11/TCR_BCR/runs/e32_e36_ocm_summary.csv",
+  "h5ad": "/ix1/ylee/kor11/TCR_BCR/runs/e32_e36_vdj_ocm.h5ad",
+  "libraries": [
+    {
+      "id": "E32T",
+      "vdj_dir": "/ix1/ylee/kor11/TCR_BCR/runs/E32T/vdj",
+      "receptors": [
+        "tcr"
+      ],
+      "samples": [
+        {
+          "ocm_barcode_id": "OB1",
+          "sample_id": "kidney_cd4",
+          "overhang": "GT",
+          "description": "E32T CD4 T cells, kidney"
+        },
+        {
+          "ocm_barcode_id": "OB2",
+          "sample_id": "spleen_cd4",
+          "overhang": "CA",
+          "description": "E32T CD4 T cells, spleen"
+        },
+        {
+          "ocm_barcode_id": "OB3",
+          "sample_id": "liver_cd4",
+          "overhang": "TC",
+          "description": "E32T CD4 T cells, liver"
+        },
+        {
+          "ocm_barcode_id": "OB4",
+          "sample_id": "lung_cd4",
+          "overhang": "AG",
+          "description": "E32T CD4 T cells, lung"
+        }
+      ],
+      "gex_h5ad": "/ix1/ylee/kor11/TCR_BCR/runs/E32T/ocm/E32T_gex_adt_ocm.h5ad"
+    },
+    {
+      "id": "E33T",
+      "vdj_dir": "/ix1/ylee/kor11/TCR_BCR/runs/E33T/vdj",
+      "receptors": [
+        "tcr"
+      ],
+      "samples": [
+        {
+          "ocm_barcode_id": "OB1",
+          "sample_id": "kidney_cd8",
+          "overhang": "GT",
+          "description": "E33T CD8 T cells, kidney"
+        },
+        {
+          "ocm_barcode_id": "OB2",
+          "sample_id": "spleen_cd8",
+          "overhang": "CA",
+          "description": "E33T CD8 T cells, spleen"
+        },
+        {
+          "ocm_barcode_id": "OB3",
+          "sample_id": "liver_cd8",
+          "overhang": "TC",
+          "description": "E33T CD8 T cells, liver"
+        },
+        {
+          "ocm_barcode_id": "OB4",
+          "sample_id": "lung_cd8",
+          "overhang": "AG",
+          "description": "E33T CD8 T cells, lung"
+        }
+      ],
+      "gex_h5ad": "/ix1/ylee/kor11/TCR_BCR/runs/E33T/ocm/E33T_gex_adt_ocm.h5ad"
+    },
+    {
+      "id": "E34B",
+      "vdj_dir": "/ix1/ylee/kor11/TCR_BCR/runs/E34B/vdj",
+      "receptors": [
+        "bcr"
+      ],
+      "samples": [
+        {
+          "ocm_barcode_id": "OB1",
+          "sample_id": "kidney_cd19",
+          "overhang": "GT",
+          "description": "E34B CD19 B cells, kidney"
+        },
+        {
+          "ocm_barcode_id": "OB2",
+          "sample_id": "spleen_cd19",
+          "overhang": "CA",
+          "description": "E34B CD19 B cells, spleen"
+        },
+        {
+          "ocm_barcode_id": "OB3",
+          "sample_id": "liver_cd19",
+          "overhang": "TC",
+          "description": "E34B CD19 B cells, liver"
+        },
+        {
+          "ocm_barcode_id": "OB4",
+          "sample_id": "lung_cd19",
+          "overhang": "AG",
+          "description": "E34B CD19 B cells, lung"
+        }
+      ],
+      "gex_h5ad": "/ix1/ylee/kor11/TCR_BCR/runs/E34B/ocm/E34B_gex_adt_ocm.h5ad"
+    },
+    {
+      "id": "E35TB",
+      "vdj_dir": "/ix1/ylee/kor11/TCR_BCR/runs/E35TB/vdj",
+      "receptors": [
+        "tcr",
+        "bcr"
+      ],
+      "samples": [
+        {
+          "ocm_barcode_id": "OB1",
+          "sample_id": "blood_cd4",
+          "overhang": "GT",
+          "description": "E35TB blood CD4 T cells",
+          "cells_sorted": 17200
+        },
+        {
+          "ocm_barcode_id": "OB2",
+          "sample_id": "blood_cd8",
+          "overhang": "CA",
+          "description": "E35TB blood CD8 T cells",
+          "cells_sorted": 3000
+        },
+        {
+          "ocm_barcode_id": "OB3",
+          "sample_id": "blood_cd19",
+          "overhang": "TC",
+          "description": "E35TB blood CD19 B cells",
+          "cells_sorted": 250
+        },
+        {
+          "ocm_barcode_id": "OB4",
+          "sample_id": "skin_cd4_cd8_pool",
+          "overhang": "AG",
+          "description": "E35TB skin CD4/CD8 pool (4450 CD4, 100 CD8)"
+        }
+      ],
+      "gex_h5ad": "/ix1/ylee/kor11/TCR_BCR/runs/E35TB/ocm/E35TB_gex_adt_ocm.h5ad"
+    },
+    {
+      "id": "E36T",
+      "vdj_dir": "/ix1/ylee/kor11/TCR_BCR/runs/E36T/vdj",
+      "receptors": [
+        "tcr"
+      ],
+      "samples": [
+        {
+          "ocm_barcode_id": "OB1",
+          "sample_id": "lacrimal_cd4",
+          "overhang": "GT",
+          "description": "E36T lacrimal gland CD4 T cells",
+          "cells_sorted": 2650
+        },
+        {
+          "ocm_barcode_id": "OB2",
+          "sample_id": "lacrimal_cd8",
+          "overhang": "CA",
+          "description": "E36T lacrimal gland CD8 T cells",
+          "cells_sorted": 150
+        },
+        {
+          "ocm_barcode_id": "OB3",
+          "sample_id": "submandibular_cd4",
+          "overhang": "TC",
+          "description": "E36T submandibular gland CD4 T cells",
+          "cells_sorted": 3050
+        },
+        {
+          "ocm_barcode_id": "OB4",
+          "sample_id": "submandibular_cd8",
+          "overhang": "AG",
+          "description": "E36T submandibular gland CD8 T cells",
+          "cells_sorted": 650
+        }
+      ],
+      "gex_h5ad": "/ix1/ylee/kor11/TCR_BCR/runs/E36T/ocm/E36T_gex_adt_ocm.h5ad"
+    }
+  ],
+  "animal": "lupus mouse 2 (replicate; E32T\u2013E36T are sorted populations and organs of this mouse)",
+  "joint_h5ad": "/ix1/ylee/kor11/TCR_BCR/runs/e32_e36_gex_vdj.h5ad",
+  "qc_cross_library": "/ix1/ylee/kor11/TCR_BCR/runs/e32_e36_vdj_cross_library_qc.csv"
+}

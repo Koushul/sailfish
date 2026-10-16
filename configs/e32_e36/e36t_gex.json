@@ -1,0 +1,52 @@
+{
+  "sample": "E36T",
+  "mode": "ocm",
+  "output": "/ix1/ylee/kor11/TCR_BCR/runs/E36T",
+  "threads": 12,
+  "min_gex_umi": 500,
+  "tools": {
+    "conda": "/ix1/ylee/kor11/tools/af_tutorial/conda_env"
+  },
+  "gex": {
+    "reads1": [
+      "/ix1/ylee/shared/E20_E30_Series/01.RawData/E36T_GEX/E36T_GEX-SI_TT_G5_23W5C2LT4_S3_L006_R1_001.fastq.gz"
+    ],
+    "reads2": [
+      "/ix1/ylee/shared/E20_E30_Series/01.RawData/E36T_GEX/E36T_GEX-SI_TT_G5_23W5C2LT4_S3_L006_R2_001.fastq.gz"
+    ],
+    "index": "/ix1/ylee/shared/E18S_E19S_E37S1_E37S2/E37S2_sailfish/refs/mouse-2024-A_splici/index",
+    "chemistry": "10xv3-5p"
+  },
+  "ocm": {
+    "samples": [
+      {
+        "ocm_barcode_id": "OB1",
+        "sample_id": "lacrimal_cd4",
+        "overhang": "GT",
+        "description": "E36T lacrimal gland CD4 T cells",
+        "cells_sorted": 2650
+      },
+      {
+        "ocm_barcode_id": "OB2",
+        "sample_id": "lacrimal_cd8",
+        "overhang": "CA",
+        "description": "E36T lacrimal gland CD8 T cells",
+        "cells_sorted": 150
+      },
+      {
+        "ocm_barcode_id": "OB3",
+        "sample_id": "submandibular_cd4",
+        "overhang": "TC",
+        "description": "E36T submandibular gland CD4 T cells",
+        "cells_sorted": 3050
+      },
+      {
+        "ocm_barcode_id": "OB4",
+        "sample_id": "submandibular_cd8",
+        "overhang": "AG",
+        "description": "E36T submandibular gland CD8 T cells",
+        "cells_sorted": 650
+      }
+    ]
+  }
+}
